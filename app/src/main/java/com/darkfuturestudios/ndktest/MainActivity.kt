@@ -16,6 +16,7 @@ import android.util.Size
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
+import android.widget.SeekBar
 import android.widget.Toast
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
@@ -23,6 +24,10 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.collections.HashMap
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.log
 
 
 class MainActivity : AppCompatActivity() {
@@ -30,6 +35,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var stateCallback: CameraDevice.StateCallback
     private lateinit var textureView: TextureView
     private lateinit var fabTakePhoto: View
+    private lateinit var seekBars: HashMap<Int, SeekBar>
     private lateinit var surfaceTextureListener: TextureView.SurfaceTextureListener
     private lateinit var cameraManager: CameraManager
     private lateinit var previewSize: Size
@@ -44,6 +50,12 @@ class MainActivity : AppCompatActivity() {
     private var captureRequestBuilder: CaptureRequest.Builder? = null
     private var captureRequest: CaptureRequest? = null
 
+    // Camera settings
+    private var exposure: Long = 1000000L
+    private var focus: Double = 0.0
+    private var gain: Double = 0.0
+    private var res: Double = 0.0
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +63,27 @@ class MainActivity : AppCompatActivity() {
 
         textureView = findViewById(R.id.texture_view)
         fabTakePhoto = findViewById(R.id.fab_take_photo)
+
+        // Seek bars
+        seekBars = hashMapOf(SEEK_BAR_EXPOSURE to findViewById(R.id.seek_bar_exposure) as SeekBar,
+                SEEK_BAR_FOCUS to findViewById(R.id.seek_bar_focus) as SeekBar,
+                SEEK_BAR_GAIN to findViewById(R.id.seek_bar_gain) as SeekBar,
+                SEEK_BAR_RES to findViewById(R.id.seek_bar_res) as SeekBar)
+
+        for ((key, seekBar) in seekBars) {
+            seekBar.setOnSeekBarChangeListener( object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(pSeekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    calculateCameraSetting(progress, key)
+                }
+
+                override fun onStartTrackingTouch(pSeekBar: SeekBar) {
+                }
+
+                override fun onStopTrackingTouch(pSeekBar: SeekBar) {
+                }
+            })
+        }
+
         fabTakePhoto.setOnClickListener {
             lock()
             var outputPhoto: FileOutputStream? = null
@@ -164,6 +197,9 @@ class MainActivity : AppCompatActivity() {
                     maxFocalLengths = focalLengths
                 }
             }
+
+            Log.d(TAG, "Exposure time range: ${cameraManager.getCameraCharacteristics(cameraId)
+                    .get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)}")
         } catch (e: CameraAccessException) {
             e.printStackTrace()
         }
@@ -201,6 +237,17 @@ class MainActivity : AppCompatActivity() {
             val previewSurface = Surface(surfaceTexture)
             captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
             captureRequestBuilder?.addTarget(previewSurface)
+
+            // Adjust the exposure
+
+            // First turn Auto Exposure off
+            captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+
+            // Then set the exposure time (ns)
+            // TODO Look into range of device exposure times
+            //captureRequestBuilder?.set(CaptureRequest.SENSOR_EXPOSURE_TIME, 1*1000000000)
+            captureRequestBuilder?.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
+            //captureRequestBuilder?.set(CaptureRequest.SENSOR_FRAME_DURATION, 100000000)
 
             cameraDevice?.createCaptureSession(Collections.singletonList(previewSurface),
                     object : CameraCaptureSession.StateCallback() {
@@ -296,6 +343,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun calculateCameraSetting(progress: Int, key: Int) {
+
+        Log.d(TAG, "Progress: " + progress)
+
+        when (key) {
+            SEEK_BAR_EXPOSURE -> {
+                //exposure = ln((progress/100.0)*999000000 + 1000000).toLong()
+                exposure = (1000000* exp(0.069*progress)).toLong()
+                Log.d(TAG, "Exposure: $exposure")
+            }
+            SEEK_BAR_FOCUS -> {
+                //focus = progress
+            }
+            SEEK_BAR_GAIN -> {
+                //gain = progress
+            }
+            SEEK_BAR_RES -> {
+                //res = progress
+            }
+        }
+
+        createPreviewSession()
+    }
+
     fun calculate(view: View) {
         val aString = editTextSemiMajor.text.toString()
         val eString = editTextEccentricity.text.toString()
@@ -326,6 +397,11 @@ class MainActivity : AppCompatActivity() {
 
         const val TAG: String = "MainActivity"
         const val PERMISSION_REQUEST_CAMERA: Int = 7000
+
+        const val SEEK_BAR_EXPOSURE = 0
+        const val SEEK_BAR_FOCUS = 1
+        const val SEEK_BAR_GAIN = 2
+        const val SEEK_BAR_RES = 3
 
         // Used to load the 'native-lib' library on application startup.
         init {

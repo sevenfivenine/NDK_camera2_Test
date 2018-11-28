@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<android.support.constraint.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
 
     <TextureView
         android:id="@+id/texture_view"
@@ -15,8 +17,106 @@
         android:layout_height="56dp"
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
-        android:layout_marginBottom="24dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
         android:src="@drawable/ic_camera"
-        app:backgroundTint="@color/colorPrimary" />
+        app:backgroundTint="@color/colorPrimary"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
-</RelativeLayout>
+    <SeekBar
+        android:id="@+id/seek_bar_exposure"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/text_view_exposure"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <SeekBar
+        android:id="@+id/seek_bar_focus"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/text_view_focus"
+        app:layout_constraintTop_toBottomOf="@+id/seek_bar_exposure" />
+
+    <SeekBar
+        android:id="@+id/seek_bar_gain"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/text_view_gain"
+        app:layout_constraintTop_toBottomOf="@+id/seek_bar_focus" />
+
+    <SeekBar
+        android:id="@+id/seek_bar_res"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/text_view_res"
+        app:layout_constraintTop_toBottomOf="@+id/seek_bar_gain" />
+
+    <TextView
+        android:id="@+id/text_view_exposure"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="Exposure"
+        android:textAlignment="textEnd"
+        app:layout_constraintBottom_toBottomOf="@+id/seek_bar_exposure"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/seek_bar_exposure" />
+
+    <TextView
+        android:id="@+id/text_view_focus"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="Focus"
+        android:textAlignment="textEnd"
+        app:layout_constraintBottom_toBottomOf="@+id/seek_bar_focus"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/seek_bar_focus" />
+
+    <TextView
+        android:id="@+id/text_view_gain"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="Gain"
+        android:textAlignment="textEnd"
+        app:layout_constraintBottom_toBottomOf="@+id/seek_bar_gain"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/seek_bar_gain" />
+
+    <TextView
+        android:id="@+id/text_view_res"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="Resolution"
+        android:textAlignment="textEnd"
+        app:layout_constraintBottom_toBottomOf="@+id/seek_bar_res"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/seek_bar_res" />
+
+</android.support.constraint.ConstraintLayout>
