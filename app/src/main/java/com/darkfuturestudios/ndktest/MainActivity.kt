@@ -200,6 +200,8 @@ class MainActivity : AppCompatActivity() {
 
             Log.d(TAG, "Exposure time range: ${cameraManager.getCameraCharacteristics(cameraId)
                     .get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)}")
+            Log.d(TAG, "Char: ${cameraManager.getCameraCharacteristics(cameraId)}")
+            Log.d(TAG, "Camera: $cameraId")
         } catch (e: CameraAccessException) {
             e.printStackTrace()
         }
@@ -343,6 +345,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Calculates camera setting and updates the camera by calling createPreviewSession()
+     */
     private fun calculateCameraSetting(progress: Int, key: Int) {
 
         Log.d(TAG, "Progress: " + progress)
@@ -357,14 +362,33 @@ class MainActivity : AppCompatActivity() {
                 //focus = progress
             }
             SEEK_BAR_GAIN -> {
-                //gain = progress
+                //gain =
             }
             SEEK_BAR_RES -> {
                 //res = progress
             }
         }
 
-        createPreviewSession()
+        //createPreviewSession()
+
+        try {
+            val surfaceTexture = textureView.surfaceTexture
+            val previewSurface = Surface(surfaceTexture)
+            captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+            captureRequestBuilder?.addTarget(previewSurface)
+
+            captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            captureRequestBuilder?.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
+            captureRequestBuilder?.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
+            Log.d(TAG, "EXP TIME: ${captureRequestBuilder?.get(CaptureRequest.SENSOR_EXPOSURE_TIME)}")
+            Log.d(TAG, "Control mode: ${captureRequestBuilder?.get(CaptureRequest.CONTROL_MODE)}")
+
+            captureRequest = captureRequestBuilder?.build()
+            cameraCaptureSession?.setRepeatingRequest(captureRequest, null, backgroundHandler)
+        } catch (e: CameraAccessException) {
+            e.printStackTrace()
+        }
+
     }
 
     fun calculate(view: View) {
