@@ -5,10 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
-import android.os.Bundle
-import android.os.Environment
-import android.os.Handler
-import android.os.HandlerThread
+import android.os.*
 import android.support.v4.app.ActivityCompat
 import android.support.v7.app.AppCompatActivity
 import android.util.Log
@@ -18,6 +15,7 @@ import android.view.TextureView
 import android.view.View
 import android.widget.SeekBar
 import android.widget.Toast
+import com.darkfuturestudios.ndktest.CameraController.*
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
 import java.io.FileOutputStream
@@ -49,6 +47,8 @@ class MainActivity : AppCompatActivity() {
     private var backgroundThread: HandlerThread? = null
     private var captureRequestBuilder: CaptureRequest.Builder? = null
     private var captureRequest: CaptureRequest? = null
+    private var cameraController: CameraController? = null
+    private var hardwareSupportsCamera2: Boolean = true
 
     // Camera settings
     private var exposure: Long = 1000000L
@@ -107,7 +107,13 @@ class MainActivity : AppCompatActivity() {
         surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
                 setUpCamera()
-                openCamera()
+                cameraController = createCameraController()
+                cameraController?.setPreviewTexture(surfaceTexture)
+                cameraController?.setPreviewSize(previewSize.width, previewSize.height)
+                //TODO this will crash if set to previewSize.width, previewSize.height
+                cameraController?.setPictureSize(1080, 1920)
+                cameraController?.startPreview()
+                //openCamera()
             }
 
             override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
@@ -123,11 +129,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // This is no longer being used
         stateCallback = object : CameraDevice.StateCallback() {
             override fun onOpened(cameraDevice: CameraDevice) {
                 this@MainActivity.cameraDevice = cameraDevice
+                //TODO make sure we don't need this
                 createPreviewSession()
-            }
+        }
 
             override fun onDisconnected(cameraDevice: CameraDevice) {
                 cameraDevice.close()
@@ -145,8 +153,16 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         openBackgroundThread()
         if (textureView.isAvailable) {
+            val surfaceTexture = textureView.surfaceTexture
+
             setUpCamera()
-            openCamera()
+            cameraController = createCameraController()
+            cameraController?.setPreviewTexture(surfaceTexture)
+            cameraController?.setPreviewSize(previewSize.width, previewSize.height)
+            //TODO this will crash if set to previewSize.width, previewSize.height
+            cameraController?.setPictureSize(1080, 1920)
+            cameraController?.startPreview()
+            //openCamera()
         } else {
             textureView.surfaceTextureListener = surfaceTextureListener
         }
@@ -156,6 +172,45 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
         closeCamera()
         closeBackgroundThread()
+    }
+
+    /**
+     * Create a CameraController
+     * Depending on the software (Android 5.0+?) and hardware (is camera2 supported?) this will
+     * be either CameraController1 or CameraController2
+     */
+    private fun createCameraController(): CameraController? {
+        var cameraControllerLocal: CameraController?
+
+        try {
+            val cameraErrorCallback = CameraController.ErrorCallback {
+                if (cameraController != null) {
+                    cameraController = null
+                    //TODO make this a member, give an int value
+                    val cameraOpenState = "closed"
+                    //TODO need this?
+                    // applicationInterface.onCameraError()
+                }
+            }
+
+            val useCamera2 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && hardwareSupportsCamera2
+
+            cameraControllerLocal = if (useCamera2) {
+                val previewErrorCallback = CameraController.ErrorCallback {
+                    //TODO this
+                    // applicationInterface.onFailedStartPreview()
+                }
+
+                CameraController2(applicationContext, cameraId.toInt(), previewErrorCallback, cameraErrorCallback)
+            } else {
+                CameraController1(cameraId.toInt(), cameraErrorCallback)
+            }
+        } catch (e: CameraControllerException) {
+            e.printStackTrace()
+            cameraControllerLocal = null
+        }
+
+        return cameraControllerLocal
     }
 
     private fun closeCamera() {
@@ -184,6 +239,8 @@ class MainActivity : AppCompatActivity() {
              * In case they have multiple elements, it makes sense to compare the max from each */
             var maxFocalLengths: FloatArray = floatArrayOf(0.0f)
 
+            val camera2Manager = CameraControllerManager2(this)
+
             for (cameraId in cameraManager.cameraIdList) {
                 val cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraId)
                 val focalLengths = cameraCharacteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
@@ -196,6 +253,9 @@ class MainActivity : AppCompatActivity() {
                     this.cameraId = cameraId
                     maxFocalLengths = focalLengths
                 }
+
+                if (!camera2Manager.allowCamera2Support(cameraId.toInt()))
+                    hardwareSupportsCamera2 = false
             }
 
             Log.d(TAG, "Exposure time range: ${cameraManager.getCameraCharacteristics(cameraId)
@@ -208,6 +268,10 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    /**
+     * Do not do this
+     * TODO move permission checks elsewhere
+     */
     private fun openCamera() {
         try {
             Log.d(TAG, "Checking Permissions for Camera use...")
@@ -232,6 +296,9 @@ class MainActivity : AppCompatActivity() {
         backgroundHandler = Handler(backgroundThread?.looper)
     }
 
+    /**
+     * This should be done via CameraController, so this should not be called
+     */
     private fun createPreviewSession() {
         try {
             val surfaceTexture = textureView.surfaceTexture
@@ -244,6 +311,7 @@ class MainActivity : AppCompatActivity() {
 
             // First turn Auto Exposure off
             captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            Log.d(TAG, "Control mode: ${captureRequestBuilder?.get(CaptureRequest.CONTROL_AE_MODE)}")
 
             // Then set the exposure time (ns)
             // TODO Look into range of device exposure times
@@ -346,16 +414,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Calculates camera setting and updates the camera by calling createPreviewSession()
+     * Calculates camera setting and updates the current session
      */
     private fun calculateCameraSetting(progress: Int, key: Int) {
-
         Log.d(TAG, "Progress: " + progress)
 
         when (key) {
             SEEK_BAR_EXPOSURE -> {
-                //exposure = ln((progress/100.0)*999000000 + 1000000).toLong()
-                exposure = (1000000* exp(0.069*progress)).toLong()
+                //
+                exposure = (100000* exp(0.069*progress)).toLong()
                 Log.d(TAG, "Exposure: $exposure")
             }
             SEEK_BAR_FOCUS -> {
@@ -369,21 +436,42 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        //createPreviewSession()
-
         try {
-            val surfaceTexture = textureView.surfaceTexture
+            val surfaceTexture = textureView.surfaceTexture ?: return
             val previewSurface = Surface(surfaceTexture)
             captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
             captureRequestBuilder?.addTarget(previewSurface)
 
-            captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
-            captureRequestBuilder?.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
-            captureRequestBuilder?.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
+            //captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            //captureRequestBuilder?.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
+            //captureRequestBuilder?.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
+
+            // camera
+            if (cameraController is CameraController1) {
+                Log.d(TAG, "Using camera")
+                //TODO what if these are null?
+                val minExp = cameraController?.cameraFeatures?.min_exposure ?: 0
+                val maxExp = cameraController?.cameraFeatures?.max_exposure ?: 0
+                val expComp = minExp + progress/100.0*(maxExp - minExp)
+                Log.d(TAG, "Min ExpComp $minExp Max ExpComp $maxExp")
+                cameraController?.exposureCompensation = expComp.toInt()
+            }
+            // camera2
+            else if (cameraController is CameraController2) {
+                Log.d(TAG, "Using camera2")
+                /**
+                 * CameraController will not allow auto exposure to turn off unless we also set a
+                 * manual ISO first
+                 */
+                cameraController?.setManualISO(true, 100)
+                cameraController?.exposureTime = exposure
+            }
+
             Log.d(TAG, "EXP TIME: ${captureRequestBuilder?.get(CaptureRequest.SENSOR_EXPOSURE_TIME)}")
-            Log.d(TAG, "Control mode: ${captureRequestBuilder?.get(CaptureRequest.CONTROL_MODE)}")
+            Log.d(TAG, "Control mode: ${captureRequestBuilder?.get(CaptureRequest.CONTROL_AE_MODE)}")
 
             captureRequest = captureRequestBuilder?.build()
+            Log.d(TAG, "Request: $captureRequest")
             cameraCaptureSession?.setRepeatingRequest(captureRequest, null, backgroundHandler)
         } catch (e: CameraAccessException) {
             e.printStackTrace()
