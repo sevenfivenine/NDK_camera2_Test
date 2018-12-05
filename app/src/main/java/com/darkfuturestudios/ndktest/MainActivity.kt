@@ -3,7 +3,6 @@ package com.darkfuturestudios.ndktest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Camera
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.os.*
@@ -18,37 +17,50 @@ import android.view.View
 import android.widget.SeekBar
 import android.widget.Toast
 import com.darkfuturestudios.ndktest.CameraController.*
+import kotlinx.android.synthetic.main.activity_camera.*
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.collections.HashMap
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.round
 
-
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var stateCallback: CameraDevice.StateCallback
+    //region companion
+
+    companion object {
+
+        const val TAG: String = "MainActivity"
+        const val PERMISSION_REQUEST_CAMERA: Int = 7000
+
+        const val SEEK_BAR_EXPOSURE = 0
+        const val SEEK_BAR_FOCUS = 1
+        const val SEEK_BAR_GAIN = 2
+        const val SEEK_BAR_RES = 3
+
+        // Used to load the 'native-lib' library on application startup.
+        init {
+            System.loadLibrary("native-lib")
+        }
+
+    }
+
+    //endregion
+
+    //region members
+
     private lateinit var textureView: TextureView
     private lateinit var fabTakePhoto: View
     private lateinit var seekBars: HashMap<Int, SeekBar>
     private lateinit var surfaceTextureListener: TextureView.SurfaceTextureListener
     private lateinit var cameraManager: CameraManager
-    private lateinit var previewSize: Size
     private lateinit var cameraId: String
-
     private lateinit var galleryFolder: File
 
-    private var cameraDevice: CameraDevice? = null
-    private var cameraCaptureSession: CameraCaptureSession? = null
-    private var backgroundHandler: Handler? = null
-    private var backgroundThread: HandlerThread? = null
-    private var captureRequestBuilder: CaptureRequest.Builder? = null
-    private var captureRequest: CaptureRequest? = null
     private var cameraController: CameraController? = null
     private var hardwareSupportsCamera2: Boolean = true
 
@@ -60,22 +72,27 @@ class MainActivity : AppCompatActivity() {
     private var gainString: String = "" // camera
     private var resolution: CameraController.Size? = null
 
+    //endregion
+
+    //region lifecycle
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
 
+        // Find views
         textureView = findViewById(R.id.texture_view)
         fabTakePhoto = findViewById(R.id.fab_take_photo)
 
-        // Seek bars
-        seekBars = hashMapOf(SEEK_BAR_EXPOSURE to findViewById(R.id.seek_bar_exposure) as SeekBar,
-                SEEK_BAR_FOCUS to findViewById(R.id.seek_bar_focus) as SeekBar,
-                SEEK_BAR_GAIN to findViewById(R.id.seek_bar_gain) as SeekBar,
-                SEEK_BAR_RES to findViewById(R.id.seek_bar_res) as SeekBar)
+        // Create seekBars hash map
+        seekBars = hashMapOf(SEEK_BAR_EXPOSURE to seek_bar_exposure,
+                SEEK_BAR_FOCUS to seek_bar_focus,
+                SEEK_BAR_GAIN to seek_bar_gain,
+                SEEK_BAR_RES to seek_bar_res)
 
         for ((key, seekBar) in seekBars) {
-            seekBar.setOnSeekBarChangeListener( object : SeekBar.OnSeekBarChangeListener {
+            // Set listener
+            seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(pSeekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     calculateCameraSetting(progress, key)
                 }
@@ -90,21 +107,6 @@ class MainActivity : AppCompatActivity() {
 
         fabTakePhoto.setOnClickListener {
             takePhoto()
-            /*lock()
-            var outputPhoto: FileOutputStream? = null
-            try {
-                outputPhoto = FileOutputStream(createImageFile())
-                textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                unlock()
-                try {
-                    outputPhoto?.close()
-                } catch (e: IOException) {
-                    e.printStackTrace()
-                }
-            }*/
         }
 
         cameraManager = applicationContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -128,30 +130,10 @@ class MainActivity : AppCompatActivity() {
                 //Log.d(TAG, "SurfaceTextureListener: UPDATED")
             }
         }
-
-        // This is no longer being used
-        stateCallback = object : CameraDevice.StateCallback() {
-            override fun onOpened(cameraDevice: CameraDevice) {
-                this@MainActivity.cameraDevice = cameraDevice
-                //TODO make sure we don't need this
-                createPreviewSession()
-        }
-
-            override fun onDisconnected(cameraDevice: CameraDevice) {
-                cameraDevice.close()
-                this@MainActivity.cameraDevice = null
-            }
-
-            override fun onError(cameraDevice: CameraDevice, error: Int) {
-                cameraDevice.close()
-                this@MainActivity.cameraDevice = null
-            }
-        }
     }
 
     override fun onResume() {
         super.onResume()
-        openBackgroundThread()
         if (textureView.isAvailable) {
             Log.d(TAG, "Texture view is available")
             initializeCamera()
@@ -164,104 +146,45 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         closeCamera()
-        //closeCameraOld()
-        //closeBackgroundThread()
     }
 
+    //endregion
+
+    //region camera
+
     /**
-     * Sets up camera, creates CameraController, starts preview
+     * Sets up camera, creates CameraController, starts preview, then calculates initial camera
+     * settings
      */
     private fun initializeCamera() {
         val surfaceTexture = textureView.surfaceTexture
 
-        // User has already given access
+        // User has already given access (if not, permissions dialog callback routes back here)
         if (checkPermissions()) {
             setUpCamera()
             createImageGallery()
             cameraController = createCameraController()
             cameraController?.setPreviewTexture(surfaceTexture)
             NDKTestUtil.setCameraDisplayOrientation(this, cameraController, hardwareSupportsCamera2)
+
+            // These will be overwritten once calculateCameraSetting() is called below
+            // TODO these values may cause crashes on some devices
             cameraController?.setPreviewSize(1920, 1080)
-            //TODO this will crash if set to previewSize.width, previewSize.height
             cameraController?.setPictureSize(1080, 1920)
+
             cameraController?.startPreview()
+
+            for ((key, seekBar) in seekBars) {
+                // Initialize the camera settings
+                calculateCameraSetting(seekBar.progress, key)
+            }
         }
-        // User has not yet given access. Prompt has been issued, waiting for callback...
-        else {
-
-        }
-
-
     }
 
     /**
-     * Create a CameraController
-     * Depending on the software (Android 5.0+?) and hardware (is camera2 supported?) this will
-     * be either CameraController1 or CameraController2
+     * Finds the correct cameraId to use (back-facing, not wide angle) and determines if the
+     * software and hardware is capable of supporting camera2
      */
-    private fun createCameraController(): CameraController? {
-        var cameraControllerLocal: CameraController?
-
-        try {
-            val cameraErrorCallback = CameraController.ErrorCallback {
-                if (cameraController != null) {
-                    cameraController = null
-                    //TODO make this a member, give an int value
-                    val cameraOpenState = "closed"
-                    //TODO need this?
-                    // applicationInterface.onCameraError()
-                }
-            }
-
-            val useCamera2 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && hardwareSupportsCamera2
-
-            cameraControllerLocal = if (useCamera2) {
-                val previewErrorCallback = CameraController.ErrorCallback {
-                    //TODO this
-                    // applicationInterface.onFailedStartPreview()
-                }
-
-                CameraController2(this, cameraId.toInt(), previewErrorCallback, cameraErrorCallback)
-            } else {
-                CameraController1(cameraId.toInt(), cameraErrorCallback)
-            }
-        } catch (e: CameraControllerException) {
-            e.printStackTrace()
-            cameraControllerLocal = null
-        }
-
-        return cameraControllerLocal
-    }
-
-    /**
-     * Use this for CameraController
-     */
-    private fun closeCamera() {
-        val cameraControllerLocal = cameraController
-        if (cameraController != null) {
-            Log.d(TAG, "Closing camera")
-            cameraController = null
-            cameraControllerLocal?.stopPreview()
-            cameraControllerLocal?.release()
-        }
-    }
-
-    private fun closeCameraOld() {
-        cameraCaptureSession?.close()
-        cameraCaptureSession = null
-
-        cameraDevice?.close()
-        cameraDevice = null
-    }
-
-    private fun closeBackgroundThread() {
-        if (backgroundHandler != null) {
-            backgroundThread?.quitSafely()
-            backgroundThread = null
-            backgroundHandler = null
-        }
-    }
-
     private fun setUpCamera() {
         try {
             /** In case there is more than one back-facing camera, the one with larger focal lengths
@@ -280,9 +203,6 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Focal lengths available: $focalLengths")
                 if (cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
                         && focalLengths.max()!! > maxFocalLengths.max()!!) {
-                    val streamConfigurationMap = cameraCharacteristics.get(
-                            CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-                    previewSize = streamConfigurationMap!!.getOutputSizes(SurfaceTexture::class.java)[0]
                     this.cameraId = cameraId
                     maxFocalLengths = focalLengths
                 }
@@ -291,9 +211,6 @@ class MainActivity : AppCompatActivity() {
                     hardwareSupportsCamera2 = false
             }
 
-            Log.d(TAG, "Exposure time range: ${cameraManager.getCameraCharacteristics(cameraId)
-                    .get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)}")
-            Log.d(TAG, "Char: ${cameraManager.getCameraCharacteristics(cameraId)}")
             Log.d(TAG, "Camera: $cameraId")
         } catch (e: CameraAccessException) {
             e.printStackTrace()
@@ -302,24 +219,72 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Do not do this
+     * Creates a gallery in the phones Pictures directory for this app, if not already present
      */
-    private fun openCamera() {
-        try {
-            Log.d(TAG, "Checking Permissions for Camera use...")
-            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-            && ActivityCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-                createImageGallery()
-                cameraManager.openCamera(cameraId, stateCallback, backgroundHandler)
-            } else {
-                Log.d(TAG, "Permissions Denied!")
-                ActivityCompat.requestPermissions(this@MainActivity,
-                        arrayOf(android.Manifest.permission.CAMERA, android.Manifest.permission.WRITE_EXTERNAL_STORAGE), PERMISSION_REQUEST_CAMERA)
+    private fun createImageGallery() {
+        // On any Android phone, there is a public directory for pictures
+        val storageDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        galleryFolder = File(storageDirectory, resources.getString(R.string.app_name))
+        if (!galleryFolder.exists()) {
+            val wasCreated = galleryFolder.mkdirs()
+            if (!wasCreated) {
+                Log.e(TAG, "Failed to create directories")
             }
-        } catch (e: CameraAccessException) {
+        }
+    }
+
+    /**
+     * Creates and returns the image file captured, to be saved to storage
+     */
+    @Throws(IOException::class)
+    private fun createImageFile(): File {
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val imageFileName = "image_" + timeStamp + "_"
+        return File.createTempFile(imageFileName, ".jpg", galleryFolder)
+    }
+
+    /**
+     * Create a CameraController
+     * Depending on the software (Android 5.0+?) and hardware (is camera2 supported?) this will
+     * be either CameraController1 or CameraController2
+     */
+    private fun createCameraController(): CameraController? {
+        var cameraControllerLocal: CameraController?
+
+        try {
+            val cameraErrorCallback = CameraController.ErrorCallback {
+                if (cameraController != null) {
+                    cameraController = null
+                }
+            }
+
+            val useCamera2 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && hardwareSupportsCamera2
+
+            cameraControllerLocal = if (useCamera2) {
+                val previewErrorCallback = CameraController.ErrorCallback {}
+                CameraController2(this, cameraId.toInt(), previewErrorCallback, cameraErrorCallback)
+            } else {
+                CameraController1(cameraId.toInt(), cameraErrorCallback)
+            }
+        } catch (e: CameraControllerException) {
             e.printStackTrace()
+            cameraControllerLocal = null
         }
 
+        return cameraControllerLocal
+    }
+
+    /**
+     * Closes the CameraController camera
+     */
+    private fun closeCamera() {
+        val cameraControllerLocal = cameraController
+        if (cameraController != null) {
+            Log.d(TAG, "Closing camera")
+            cameraController = null
+            cameraControllerLocal?.stopPreview()
+            cameraControllerLocal?.release()
+        }
     }
 
     /**
@@ -329,13 +294,17 @@ class MainActivity : AppCompatActivity() {
     private fun checkPermissions(): Boolean {
         try {
             Log.d(TAG, "Checking Permissions for Camera use...")
-            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-                    && ActivityCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+                    == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                            this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED) {
                 return true
             } else {
                 Log.d(TAG, "Permissions Denied!")
                 ActivityCompat.requestPermissions(this@MainActivity,
-                        arrayOf(android.Manifest.permission.CAMERA, android.Manifest.permission.WRITE_EXTERNAL_STORAGE), PERMISSION_REQUEST_CAMERA)
+                        arrayOf(android.Manifest.permission.CAMERA,
+                                android.Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                                PERMISSION_REQUEST_CAMERA)
             }
         } catch (e: CameraAccessException) {
             e.printStackTrace()
@@ -363,10 +332,11 @@ class MainActivity : AppCompatActivity() {
             override fun onCompleted() {
                 Log.d(TAG, "PictureCallback.onCompleted()")
 
-                // Pause preview
-                if (cameraController is CameraController1) {
+                /** For camera2, we need to pause the preview to indicate to the user a photo has
+                 *  been captured. For camera, pause is done automatically */
 
-                } else if (cameraController is CameraController2) {
+                // Pause preview
+                if (cameraController is CameraController2) {
                     cameraController?.stopPreview()
                 }
 
@@ -382,7 +352,6 @@ class MainActivity : AppCompatActivity() {
             override fun onPictureTaken(data: ByteArray?) {
                 Log.d(TAG, "PictureCallback.onPictureTaken()")
 
-                // lock()
                 var outputPhoto: FileOutputStream? = null
                 try {
                     outputPhoto = FileOutputStream(createImageFile())
@@ -394,7 +363,6 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     e.printStackTrace()
                 } finally {
-                    // unlock()
                     try {
                         outputPhoto?.close()
                     } catch (e: IOException) {
@@ -416,73 +384,18 @@ class MainActivity : AppCompatActivity() {
         cameraController?.takePicture(pictureCallback, errorCallback)
     }
 
-    private fun openBackgroundThread() {
-        backgroundThread = HandlerThread("camera_background_thread")
-        backgroundThread?.start()
-        backgroundHandler = Handler(backgroundThread?.looper)
-    }
-
     /**
-     * This should be done via CameraController, so this should not be called
+     * Once the permission dialog is closed
+     * If all permissions are granted, we may use the app
      */
-    private fun createPreviewSession() {
-        try {
-            val surfaceTexture = textureView.surfaceTexture
-            surfaceTexture.setDefaultBufferSize(previewSize.width, previewSize.height)
-            val previewSurface = Surface(surfaceTexture)
-            captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-            captureRequestBuilder?.addTarget(previewSurface)
-
-            // Adjust the exposure
-
-            // First turn Auto Exposure off
-            captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
-            Log.d(TAG, "Control mode: ${captureRequestBuilder?.get(CaptureRequest.CONTROL_AE_MODE)}")
-
-            // Then set the exposure time (ns)
-            // TODO Look into range of device exposure times
-            //captureRequestBuilder?.set(CaptureRequest.SENSOR_EXPOSURE_TIME, 1*1000000000)
-            captureRequestBuilder?.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
-            //captureRequestBuilder?.set(CaptureRequest.SENSOR_FRAME_DURATION, 100000000)
-
-            cameraDevice?.createCaptureSession(Collections.singletonList(previewSurface),
-                    object : CameraCaptureSession.StateCallback() {
-
-                        override fun onConfigured(cameraCaptureSession: CameraCaptureSession) {
-                            if (cameraDevice ==
-                                    null) {
-                                return
-                            }
-
-                            try {
-                                captureRequest = captureRequestBuilder?.build()
-                                this@MainActivity.cameraCaptureSession = cameraCaptureSession
-                                this@MainActivity.cameraCaptureSession?.setRepeatingRequest(captureRequest, null, backgroundHandler)
-                            } catch (e: CameraAccessException) {
-                                e.printStackTrace()
-                            }
-
-                        }
-
-                        override fun onConfigureFailed(cameraCaptureSession: CameraCaptureSession) {
-
-                        }
-                    }, backgroundHandler)
-        } catch (e: CameraAccessException) {
-            e.printStackTrace()
-        }
-
-    }
-
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         when (requestCode) {
             PERMISSION_REQUEST_CAMERA -> {
-                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED } ) {
+                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                     // Permission Granted
                     initializeCamera()
-                    //if(textureView.isAvailable) openCamera()
                 } else {
-                    // Permission Denied
+                    // Permission Denied. Restart the app to ask again
                 }
                 return
             }
@@ -490,83 +403,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Creates a gallery in the phones Pictures directory for this app
-     */
-    private fun createImageGallery() {
-        // On any Android phone, there is a public directory for pictures
-        val storageDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-        galleryFolder = File(storageDirectory, resources.getString(R.string.app_name))
-        if (!galleryFolder.exists()) {
-            val wasCreated = galleryFolder.mkdirs()
-            if(!wasCreated) {
-                Log.e(TAG, "Failed to create directories")
-            }
-        }
-    }
-
-    /**
-     * Creates and returns the image file captured, to be saved to storage
-     */
-    @Throws(IOException::class)
-    private fun createImageFile(): File {
-        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val imageFileName = "image_" + timeStamp + "_"
-        return File.createTempFile(imageFileName, ".jpg", galleryFolder)
-    }
-
-    /**
-     * When a picture is taken, the TextureView is frozen for a brief time to indicate that the
-     * picture has been captured
-     */
-    private fun lock() {
-        try {
-            // null 2nd argument indicates we do not need to use image metadata
-            cameraCaptureSession?.capture(captureRequestBuilder?.build(), null, backgroundHandler)
-        } catch (e: CameraAccessException) {
-            e.printStackTrace()
-        }
-    }
-
-    /**
-     * After a brief pause, the TextureView unfreezes and repeatedly updates, indicating the user
-     * is in capture mode again
-     */
-    private fun unlock() {
-        try {
-            // null 2nd argument indicates we do not need to use image metadata
-            cameraCaptureSession?.setRepeatingRequest(captureRequestBuilder?.build(), null, backgroundHandler)
-        } catch (e: CameraAccessException) {
-            e.printStackTrace()
-        }
-    }
-
-    /**
-     * Calculates camera setting and updates the current session
+     * Calculates camera setting and updates the CameraController session
      */
     private fun calculateCameraSetting(progress: Int, key: Int) {
-        Log.d(TAG, "Progress: " + progress)
 
         // Calculate camera setting
         when (key) {
             SEEK_BAR_EXPOSURE -> {
-                Log.d(TAG, "Exposure: $exposure")
-
                 // camera
                 if (cameraController is CameraController1) {
-                    //TODO what if these are null?
                     val minExp = cameraController?.cameraFeatures?.min_exposure ?: 0
                     val maxExp = cameraController?.cameraFeatures?.max_exposure ?: 0
-                    exposureCompensation = minExp + progress/100.0*(maxExp - minExp)
-                    Log.d(TAG, "Min ExpComp $minExp Max ExpComp $maxExp")
+                    exposureCompensation = minExp + progress / 100.0 * (maxExp - minExp)
+                    text_view_exposure_value.text = "%.2f".format(exposureCompensation)
                 }
                 // camera2
                 else if (cameraController is CameraController2) {
-                    exposure = (100000* exp(0.069*progress)).toLong()
+                    exposure = (100000 * exp(0.069 * progress)).toLong()
+                    text_view_exposure_value.text = "%d ms".format(exposure/1000000)
                 }
             }
+
             SEEK_BAR_FOCUS -> {
                 //focus = progress
+                text_view_focus_value.text = "$focus"
             }
+
             SEEK_BAR_GAIN -> {
                 // camera
                 if (cameraController is CameraController1) {
@@ -576,7 +438,7 @@ class MainActivity : AppCompatActivity() {
                     val supportedGainValues: MutableList<Int> = mutableListOf()
                     var prefixPresent = false
 
-                    // Format seems to be either ISO400 or 400. So remove ISO and check if it converts to an int
+                    // Format seems to be either ISO### or ###. So remove ISO and check if it converts to an int
                     for (gainVal: String in supportedGainValuesStr?.values!!) {
                         val formattedGainVal: String
                         val gainValInt: Int
@@ -603,7 +465,7 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         val minGain = supportedGainValues.min() ?: return
                         val maxGain = supportedGainValues.max() ?: return
-                        val suggestedGainValue = (minGain + (progress/100.0)*(maxGain - minGain)).toInt()
+                        val suggestedGainValue = (minGain + (progress / 100.0) * (maxGain - minGain)).toInt()
                         var closestGainValue = supportedGainValues[0]
 
                         // Find closest value
@@ -620,24 +482,29 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             "$closestGainValue"
                         }
+
+                        text_view_gain_value.text = gainString
                     }
                 }
                 // camera2
                 else if (cameraController is CameraController2) {
-                    val rangeGain: Range<Int> = cameraManager.getCameraCharacteristics(cameraId).get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+                    val rangeGain: Range<Int> = cameraManager.getCameraCharacteristics(cameraId)
+                            .get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
                     val minGain = rangeGain.lower
                     val maxGain = rangeGain.upper
-                    gain = (minGain + (progress/100.0)*(maxGain - minGain)).toInt()
+                    gain = (minGain + (progress / 100.0) * (maxGain - minGain)).toInt()
+                    text_view_gain_value.text = "$gain"
                 }
             }
+
             SEEK_BAR_RES -> {
                 val pictureSizes = mutableListOf<CameraController.Size>()
                 val previewSizes = cameraController?.cameraFeatures?.preview_sizes ?: return
 
                 for (pictureSize in cameraController?.cameraFeatures?.picture_sizes ?: return) {
                     // Only use 16:9 resolutions (or close) that also have valid preview sizes
-                    if (abs(pictureSize.width.toDouble()/pictureSize.height.toDouble() - 16.0/9.0) <= 0.2
-                    && previewSizes.contains(pictureSize)) {
+                    if (abs(pictureSize.width.toDouble() / pictureSize.height.toDouble() - 16.0 / 9.0) <= 0.2
+                            && previewSizes.contains(pictureSize)) {
                         Log.d(TAG, "Picture size is ~16:9 $pictureSize")
                         pictureSizes.add(pictureSize)
                     }
@@ -645,7 +512,7 @@ class MainActivity : AppCompatActivity() {
 
                 // Choose the closest picture size
                 // PictureSizes gets filled largest to smallest, so reverse here for slider
-                resolution = pictureSizes[round((1.0 - progress/100.0)*(pictureSizes.size - 1)).toInt()]
+                resolution = pictureSizes[round((1.0 - progress / 100.0) * (pictureSizes.size - 1)).toInt()]
 
                 try {
                     // camera
@@ -662,13 +529,11 @@ class MainActivity : AppCompatActivity() {
                         if ((cameraController as CameraController2).captureSession == null) {
                             cameraController?.setPictureSize(resolution!!.width, resolution!!.height)
                             cameraController?.setPreviewSize(resolution!!.width, resolution!!.height)
-                        }
-
-                        if ((cameraController as CameraController2).captureSession == null) {
                             cameraController?.startPreview()
                         }
                     }
 
+                    text_view_res_value.text = "$resolution"
                 } catch (e: CameraAccessException) {
                     e.printStackTrace()
                 }
@@ -677,23 +542,11 @@ class MainActivity : AppCompatActivity() {
 
         // Apply the calculated setting
         try {
-            //val surfaceTexture = textureView.surfaceTexture ?: return
-            //val previewSurface = Surface(surfaceTexture)
-            //captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-            //captureRequestBuilder?.addTarget(previewSurface)
-
-            //captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
-            //captureRequestBuilder?.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
-            //captureRequestBuilder?.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
-
             // camera
             if (cameraController is CameraController1) {
                 Log.d(TAG, "Using camera")
-                val isoVal = "ISO1600"
-                //cameraController?.autoExposureLock = false
                 cameraController?.setISO(gainString)
                 cameraController?.exposureCompensation = exposureCompensation.toInt()
-                //cameraController?.autoExposureLock = true
             }
             // camera2
             else if (cameraController is CameraController2) {
@@ -705,18 +558,15 @@ class MainActivity : AppCompatActivity() {
                 cameraController?.setManualISO(true, gain)
                 cameraController?.exposureTime = exposure
             }
-
-            Log.d(TAG, "EXP TIME: ${captureRequestBuilder?.get(CaptureRequest.SENSOR_EXPOSURE_TIME)}")
-            Log.d(TAG, "Control mode: ${captureRequestBuilder?.get(CaptureRequest.CONTROL_AE_MODE)}")
-
-            //captureRequest = captureRequestBuilder?.build()
-            //Log.d(TAG, "Request: $captureRequest")
-            //cameraCaptureSession?.setRepeatingRequest(captureRequest, null, backgroundHandler)
         } catch (e: CameraAccessException) {
             e.printStackTrace()
         }
 
     }
+
+    //endregion
+
+    //region old
 
     fun calculate(view: View) {
         val aString = editTextSemiMajor.text.toString()
@@ -744,21 +594,6 @@ class MainActivity : AppCompatActivity() {
      */
     private external fun computeOrbitParams(a: Float, e: Float): String
 
-    companion object {
-
-        const val TAG: String = "MainActivity"
-        const val PERMISSION_REQUEST_CAMERA: Int = 7000
-
-        const val SEEK_BAR_EXPOSURE = 0
-        const val SEEK_BAR_FOCUS = 1
-        const val SEEK_BAR_GAIN = 2
-        const val SEEK_BAR_RES = 3
-
-        // Used to load the 'native-lib' library on application startup.
-        init {
-            System.loadLibrary("native-lib")
-        }
-
-    }
+    //endregion
 
 }

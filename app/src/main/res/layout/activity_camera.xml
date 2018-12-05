@@ -26,6 +26,8 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
+    <!-- Sliders -->
+
     <SeekBar
         android:id="@+id/seek_bar_exposure"
         android:layout_width="0dp"
@@ -35,7 +37,8 @@
         android:layout_marginStart="8dp"
         android:layout_marginTop="8dp"
         android:layout_marginEnd="8dp"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:progress="50"
+        app:layout_constraintEnd_toStartOf="@+id/text_view_exposure_value"
         app:layout_constraintStart_toEndOf="@+id/text_view_exposure"
         app:layout_constraintTop_toTopOf="parent" />
 
@@ -47,7 +50,8 @@
         android:layout_marginStart="8dp"
         android:layout_marginTop="8dp"
         android:layout_marginEnd="8dp"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:progress="50"
+        app:layout_constraintEnd_toStartOf="@+id/text_view_focus_value"
         app:layout_constraintStart_toEndOf="@+id/text_view_focus"
         app:layout_constraintTop_toBottomOf="@+id/seek_bar_exposure" />
 
@@ -59,7 +63,8 @@
         android:layout_marginStart="8dp"
         android:layout_marginTop="8dp"
         android:layout_marginEnd="8dp"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:progress="50"
+        app:layout_constraintEnd_toStartOf="@+id/text_view_gain_value"
         app:layout_constraintStart_toEndOf="@+id/text_view_gain"
         app:layout_constraintTop_toBottomOf="@+id/seek_bar_focus" />
 
@@ -71,9 +76,12 @@
         android:layout_marginStart="8dp"
         android:layout_marginTop="8dp"
         android:layout_marginEnd="8dp"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:progress="50"
+        app:layout_constraintEnd_toStartOf="@+id/text_view_res_value"
         app:layout_constraintStart_toEndOf="@+id/text_view_res"
         app:layout_constraintTop_toBottomOf="@+id/seek_bar_gain" />
+
+    <!-- Slider labels -->
 
     <TextView
         android:id="@+id/text_view_exposure"
@@ -117,6 +125,52 @@
         android:textAlignment="textEnd"
         app:layout_constraintBottom_toBottomOf="@+id/seek_bar_res"
         app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/seek_bar_res" />
+
+    <!-- Slider value labels -->
+
+    <TextView
+        android:id="@+id/text_view_exposure_value"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:text="val"
+        android:textAlignment="textStart"
+        app:layout_constraintBottom_toBottomOf="@+id/seek_bar_exposure"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/seek_bar_exposure" />
+
+    <TextView
+        android:id="@+id/text_view_focus_value"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:text="val"
+        android:textAlignment="textStart"
+        app:layout_constraintBottom_toBottomOf="@+id/seek_bar_focus"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/seek_bar_focus" />
+
+    <TextView
+        android:id="@+id/text_view_gain_value"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:text="val"
+        android:textAlignment="textStart"
+        app:layout_constraintBottom_toBottomOf="@+id/seek_bar_gain"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/seek_bar_gain" />
+
+    <TextView
+        android:id="@+id/text_view_res_value"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:text="val"
+        android:textAlignment="textStart"
+        app:layout_constraintBottom_toBottomOf="@+id/seek_bar_res"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="@+id/seek_bar_res" />
 
 </android.support.constraint.ConstraintLayout>
