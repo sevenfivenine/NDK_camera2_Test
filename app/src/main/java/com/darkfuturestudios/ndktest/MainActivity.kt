@@ -3,12 +3,14 @@ package com.darkfuturestudios.ndktest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Camera
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.os.*
 import android.support.v4.app.ActivityCompat
 import android.support.v7.app.AppCompatActivity
 import android.util.Log
+import android.util.Range
 import android.util.Size
 import android.view.Surface
 import android.view.TextureView
@@ -23,9 +25,9 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.collections.HashMap
+import kotlin.math.abs
 import kotlin.math.exp
-import kotlin.math.ln
-import kotlin.math.log
+import kotlin.math.round
 
 
 class MainActivity : AppCompatActivity() {
@@ -51,10 +53,12 @@ class MainActivity : AppCompatActivity() {
     private var hardwareSupportsCamera2: Boolean = true
 
     // Camera settings
-    private var exposure: Long = 1000000L
+    private var exposure: Long = 1000000L // camera2
+    private var exposureCompensation: Double = 0.0 // camera
     private var focus: Double = 0.0
-    private var gain: Double = 0.0
-    private var res: Double = 0.0
+    private var gain: Int = 0 // camera2
+    private var gainString: String = "" // camera
+    private var resolution: CameraController.Size? = null
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,7 +89,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         fabTakePhoto.setOnClickListener {
-            lock()
+            takePhoto()
+            /*lock()
             var outputPhoto: FileOutputStream? = null
             try {
                 outputPhoto = FileOutputStream(createImageFile())
@@ -99,33 +104,28 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: IOException) {
                     e.printStackTrace()
                 }
-            }
+            }*/
         }
 
         cameraManager = applicationContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
         surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-                setUpCamera()
-                cameraController = createCameraController()
-                cameraController?.setPreviewTexture(surfaceTexture)
-                cameraController?.setPreviewSize(previewSize.width, previewSize.height)
-                //TODO this will crash if set to previewSize.width, previewSize.height
-                cameraController?.setPictureSize(1080, 1920)
-                cameraController?.startPreview()
-                //openCamera()
+                Log.d(TAG, "SurfaceTextureListener: AVAILABLE")
+                initializeCamera()
             }
 
             override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-
+                //Log.d(TAG, "SurfaceTextureListener: SIZE CHANGED")
             }
 
             override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                //Log.d(TAG, "SurfaceTextureListener: DESTROYED")
                 return false
             }
 
             override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {
-
+                //Log.d(TAG, "SurfaceTextureListener: UPDATED")
             }
         }
 
@@ -153,25 +153,45 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         openBackgroundThread()
         if (textureView.isAvailable) {
-            val surfaceTexture = textureView.surfaceTexture
-
-            setUpCamera()
-            cameraController = createCameraController()
-            cameraController?.setPreviewTexture(surfaceTexture)
-            cameraController?.setPreviewSize(previewSize.width, previewSize.height)
-            //TODO this will crash if set to previewSize.width, previewSize.height
-            cameraController?.setPictureSize(1080, 1920)
-            cameraController?.startPreview()
-            //openCamera()
+            Log.d(TAG, "Texture view is available")
+            initializeCamera()
         } else {
             textureView.surfaceTextureListener = surfaceTextureListener
+            Log.d(TAG, "Texture view is NOT available")
         }
     }
 
     override fun onStop() {
         super.onStop()
         closeCamera()
-        closeBackgroundThread()
+        //closeCameraOld()
+        //closeBackgroundThread()
+    }
+
+    /**
+     * Sets up camera, creates CameraController, starts preview
+     */
+    private fun initializeCamera() {
+        val surfaceTexture = textureView.surfaceTexture
+
+        // User has already given access
+        if (checkPermissions()) {
+            setUpCamera()
+            createImageGallery()
+            cameraController = createCameraController()
+            cameraController?.setPreviewTexture(surfaceTexture)
+            NDKTestUtil.setCameraDisplayOrientation(this, cameraController, hardwareSupportsCamera2)
+            cameraController?.setPreviewSize(1920, 1080)
+            //TODO this will crash if set to previewSize.width, previewSize.height
+            cameraController?.setPictureSize(1080, 1920)
+            cameraController?.startPreview()
+        }
+        // User has not yet given access. Prompt has been issued, waiting for callback...
+        else {
+
+        }
+
+
     }
 
     /**
@@ -201,7 +221,7 @@ class MainActivity : AppCompatActivity() {
                     // applicationInterface.onFailedStartPreview()
                 }
 
-                CameraController2(applicationContext, cameraId.toInt(), previewErrorCallback, cameraErrorCallback)
+                CameraController2(this, cameraId.toInt(), previewErrorCallback, cameraErrorCallback)
             } else {
                 CameraController1(cameraId.toInt(), cameraErrorCallback)
             }
@@ -213,7 +233,20 @@ class MainActivity : AppCompatActivity() {
         return cameraControllerLocal
     }
 
+    /**
+     * Use this for CameraController
+     */
     private fun closeCamera() {
+        val cameraControllerLocal = cameraController
+        if (cameraController != null) {
+            Log.d(TAG, "Closing camera")
+            cameraController = null
+            cameraControllerLocal?.stopPreview()
+            cameraControllerLocal?.release()
+        }
+    }
+
+    private fun closeCameraOld() {
         cameraCaptureSession?.close()
         cameraCaptureSession = null
 
@@ -270,7 +303,6 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Do not do this
-     * TODO move permission checks elsewhere
      */
     private fun openCamera() {
         try {
@@ -288,6 +320,100 @@ class MainActivity : AppCompatActivity() {
             e.printStackTrace()
         }
 
+    }
+
+    /**
+     * Checks for permissions (camera, write external storage)
+     * @return True if permissions have already been granted, false if not (will prompt user)
+     */
+    private fun checkPermissions(): Boolean {
+        try {
+            Log.d(TAG, "Checking Permissions for Camera use...")
+            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                    && ActivityCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+                return true
+            } else {
+                Log.d(TAG, "Permissions Denied!")
+                ActivityCompat.requestPermissions(this@MainActivity,
+                        arrayOf(android.Manifest.permission.CAMERA, android.Manifest.permission.WRITE_EXTERNAL_STORAGE), PERMISSION_REQUEST_CAMERA)
+            }
+        } catch (e: CameraAccessException) {
+            e.printStackTrace()
+        }
+
+        return false
+    }
+
+    /**
+     * Take Photo by calling CameraController.takePicture()
+     */
+    private fun takePhoto() {
+        Log.d(TAG, "Take photo")
+
+        if (!textureView.isAvailable) {
+            Log.d(TAG, "Texture view not yet available")
+            return
+        }
+
+        val pictureCallback = object : CameraController.PictureCallback {
+            override fun onStarted() {
+                Log.d(TAG, "PictureCallback.onStarted()")
+            }
+
+            override fun onCompleted() {
+                Log.d(TAG, "PictureCallback.onCompleted()")
+
+                // Pause preview
+                if (cameraController is CameraController1) {
+
+                } else if (cameraController is CameraController2) {
+                    cameraController?.stopPreview()
+                }
+
+                // Start preview
+                try {
+                    cameraController?.startPreview()
+                } catch (e: CameraControllerException) {
+                    e.printStackTrace()
+                }
+
+            }
+
+            override fun onPictureTaken(data: ByteArray?) {
+                Log.d(TAG, "PictureCallback.onPictureTaken()")
+
+                // lock()
+                var outputPhoto: FileOutputStream? = null
+                try {
+                    outputPhoto = FileOutputStream(createImageFile())
+                    /** OpenCamera uses a much more sophisticated method of saving images
+                     *  This is much simpler, but less versatile
+                     *  We don't even use the data argument, just capture from textureView instead
+                     */
+                    textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    // unlock()
+                    try {
+                        outputPhoto?.close()
+                    } catch (e: IOException) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+
+            override fun onRawPictureTaken(raw_image: RawImage?) {}
+
+            override fun onBurstPictureTaken(images: MutableList<ByteArray>?) {}
+
+            override fun onFrontScreenTurnOn() {}
+
+        }
+
+        val errorCallback = CameraController.ErrorCallback { Log.e(TAG, "Error from takePicture()") }
+
+        cameraController?.takePicture(pictureCallback, errorCallback)
     }
 
     private fun openBackgroundThread() {
@@ -353,7 +479,8 @@ class MainActivity : AppCompatActivity() {
             PERMISSION_REQUEST_CAMERA -> {
                 if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED } ) {
                     // Permission Granted
-                    if(textureView.isAvailable) openCamera()
+                    initializeCamera()
+                    //if(textureView.isAvailable) openCamera()
                 } else {
                     // Permission Denied
                 }
@@ -419,28 +546,141 @@ class MainActivity : AppCompatActivity() {
     private fun calculateCameraSetting(progress: Int, key: Int) {
         Log.d(TAG, "Progress: " + progress)
 
+        // Calculate camera setting
         when (key) {
             SEEK_BAR_EXPOSURE -> {
-                //
-                exposure = (100000* exp(0.069*progress)).toLong()
                 Log.d(TAG, "Exposure: $exposure")
+
+                // camera
+                if (cameraController is CameraController1) {
+                    //TODO what if these are null?
+                    val minExp = cameraController?.cameraFeatures?.min_exposure ?: 0
+                    val maxExp = cameraController?.cameraFeatures?.max_exposure ?: 0
+                    exposureCompensation = minExp + progress/100.0*(maxExp - minExp)
+                    Log.d(TAG, "Min ExpComp $minExp Max ExpComp $maxExp")
+                }
+                // camera2
+                else if (cameraController is CameraController2) {
+                    exposure = (100000* exp(0.069*progress)).toLong()
+                }
             }
             SEEK_BAR_FOCUS -> {
                 //focus = progress
             }
             SEEK_BAR_GAIN -> {
-                //gain =
+                // camera
+                if (cameraController is CameraController1) {
+                    // First we need to retrieve supported values
+                    // TODO optimize?
+                    val supportedGainValuesStr = cameraController?.setISO("auto")
+                    val supportedGainValues: MutableList<Int> = mutableListOf()
+                    var prefixPresent = false
+
+                    // Format seems to be either ISO400 or 400. So remove ISO and check if it converts to an int
+                    for (gainVal: String in supportedGainValuesStr?.values!!) {
+                        val formattedGainVal: String
+                        val gainValInt: Int
+
+                        if (gainVal.startsWith("ISO")) {
+                            formattedGainVal = gainVal.substringAfter("ISO")
+                            prefixPresent = true
+
+                            try {
+                                gainValInt = formattedGainVal.toInt()
+                                Log.d(TAG, "Gain value of $gainValInt")
+                                supportedGainValues.add(gainValInt)
+                            } catch (e: java.lang.NumberFormatException) {
+                                // Not a numbered exposure value
+                                Log.d(TAG, "Non numbered gain of $formattedGainVal")
+                            }
+                        }
+                    }
+
+                    // If the camera is unable to change ISO, print error
+                    if (supportedGainValues.size < 2) {
+                        Log.e(TAG, "Error: Camera does not support changing ISO value")
+                        return
+                    } else {
+                        val minGain = supportedGainValues.min() ?: return
+                        val maxGain = supportedGainValues.max() ?: return
+                        val suggestedGainValue = (minGain + (progress/100.0)*(maxGain - minGain)).toInt()
+                        var closestGainValue = supportedGainValues[0]
+
+                        // Find closest value
+                        var minDiff = Int.MAX_VALUE
+                        for (gainVal: Int in supportedGainValues) {
+                            if (abs(suggestedGainValue - gainVal) < minDiff) {
+                                minDiff = abs(suggestedGainValue - gainVal)
+                                closestGainValue = gainVal
+                            }
+                        }
+
+                        gainString = if (prefixPresent) {
+                            "ISO$closestGainValue"
+                        } else {
+                            "$closestGainValue"
+                        }
+                    }
+                }
+                // camera2
+                else if (cameraController is CameraController2) {
+                    val rangeGain: Range<Int> = cameraManager.getCameraCharacteristics(cameraId).get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+                    val minGain = rangeGain.lower
+                    val maxGain = rangeGain.upper
+                    gain = (minGain + (progress/100.0)*(maxGain - minGain)).toInt()
+                }
             }
             SEEK_BAR_RES -> {
-                //res = progress
+                val pictureSizes = mutableListOf<CameraController.Size>()
+                val previewSizes = cameraController?.cameraFeatures?.preview_sizes ?: return
+
+                for (pictureSize in cameraController?.cameraFeatures?.picture_sizes ?: return) {
+                    // Only use 16:9 resolutions (or close) that also have valid preview sizes
+                    if (abs(pictureSize.width.toDouble()/pictureSize.height.toDouble() - 16.0/9.0) <= 0.2
+                    && previewSizes.contains(pictureSize)) {
+                        Log.d(TAG, "Picture size is ~16:9 $pictureSize")
+                        pictureSizes.add(pictureSize)
+                    }
+                }
+
+                // Choose the closest picture size
+                // PictureSizes gets filled largest to smallest, so reverse here for slider
+                resolution = pictureSizes[round((1.0 - progress/100.0)*(pictureSizes.size - 1)).toInt()]
+
+                try {
+                    // camera
+                    if (cameraController is CameraController1) {
+                        cameraController?.stopPreview()
+                        cameraController?.setPictureSize(resolution!!.width, resolution!!.height)
+                        cameraController?.setPreviewSize(resolution!!.width, resolution!!.height)
+                        cameraController?.startPreview()
+                    }
+                    // camera2
+                    else if (cameraController is CameraController2) {
+                        cameraController?.stopPreview()
+
+                        if ((cameraController as CameraController2).captureSession == null) {
+                            cameraController?.setPictureSize(resolution!!.width, resolution!!.height)
+                            cameraController?.setPreviewSize(resolution!!.width, resolution!!.height)
+                        }
+
+                        if ((cameraController as CameraController2).captureSession == null) {
+                            cameraController?.startPreview()
+                        }
+                    }
+
+                } catch (e: CameraAccessException) {
+                    e.printStackTrace()
+                }
             }
         }
 
+        // Apply the calculated setting
         try {
-            val surfaceTexture = textureView.surfaceTexture ?: return
-            val previewSurface = Surface(surfaceTexture)
-            captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-            captureRequestBuilder?.addTarget(previewSurface)
+            //val surfaceTexture = textureView.surfaceTexture ?: return
+            //val previewSurface = Surface(surfaceTexture)
+            //captureRequestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+            //captureRequestBuilder?.addTarget(previewSurface)
 
             //captureRequestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
             //captureRequestBuilder?.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
@@ -449,12 +689,11 @@ class MainActivity : AppCompatActivity() {
             // camera
             if (cameraController is CameraController1) {
                 Log.d(TAG, "Using camera")
-                //TODO what if these are null?
-                val minExp = cameraController?.cameraFeatures?.min_exposure ?: 0
-                val maxExp = cameraController?.cameraFeatures?.max_exposure ?: 0
-                val expComp = minExp + progress/100.0*(maxExp - minExp)
-                Log.d(TAG, "Min ExpComp $minExp Max ExpComp $maxExp")
-                cameraController?.exposureCompensation = expComp.toInt()
+                val isoVal = "ISO1600"
+                //cameraController?.autoExposureLock = false
+                cameraController?.setISO(gainString)
+                cameraController?.exposureCompensation = exposureCompensation.toInt()
+                //cameraController?.autoExposureLock = true
             }
             // camera2
             else if (cameraController is CameraController2) {
@@ -463,16 +702,16 @@ class MainActivity : AppCompatActivity() {
                  * CameraController will not allow auto exposure to turn off unless we also set a
                  * manual ISO first
                  */
-                cameraController?.setManualISO(true, 100)
+                cameraController?.setManualISO(true, gain)
                 cameraController?.exposureTime = exposure
             }
 
             Log.d(TAG, "EXP TIME: ${captureRequestBuilder?.get(CaptureRequest.SENSOR_EXPOSURE_TIME)}")
             Log.d(TAG, "Control mode: ${captureRequestBuilder?.get(CaptureRequest.CONTROL_AE_MODE)}")
 
-            captureRequest = captureRequestBuilder?.build()
-            Log.d(TAG, "Request: $captureRequest")
-            cameraCaptureSession?.setRepeatingRequest(captureRequest, null, backgroundHandler)
+            //captureRequest = captureRequestBuilder?.build()
+            //Log.d(TAG, "Request: $captureRequest")
+            //cameraCaptureSession?.setRepeatingRequest(captureRequest, null, backgroundHandler)
         } catch (e: CameraAccessException) {
             e.printStackTrace()
         }

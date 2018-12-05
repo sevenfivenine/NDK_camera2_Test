@@ -6556,4 +6556,9 @@ public class CameraController2 extends CameraController {
 			}
 		}
 	};
+
+	public CameraCaptureSession getCaptureSession() {
+		return captureSession;
+	}
+
 }
