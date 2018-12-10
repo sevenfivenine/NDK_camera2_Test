@@ -150,7 +150,7 @@ public class CameraController1 extends CameraController {
 		}
 	}
 
-	private Camera.Parameters getParameters() {
+	public Camera.Parameters getParameters() {
 		if( NDKTestUtil.LOG )
 			Log.d(TAG, "getParameters");
 		return camera.getParameters();

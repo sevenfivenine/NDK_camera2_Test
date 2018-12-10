@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
+import android.hardware.Camera
 import android.hardware.camera2.*
 import android.os.*
 import android.support.v4.app.ActivityCompat
@@ -25,6 +26,7 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
+import kotlin.math.atan
 import kotlin.math.exp
 import kotlin.math.round
 
@@ -67,7 +69,7 @@ class MainActivity : AppCompatActivity() {
     // Camera settings
     private var exposure: Long = 1000000L // camera2
     private var exposureCompensation: Double = 0.0 // camera
-    private var focus: Double = 0.0
+    private var focus: Float = 0.0f
     private var gain: Int = 0 // camera2
     private var gainString: String = "" // camera
     private var resolution: CameraController.Size? = null
@@ -107,6 +109,14 @@ class MainActivity : AppCompatActivity() {
 
         fabTakePhoto.setOnClickListener {
             takePhoto()
+        }
+
+        switch_hide_preview.setOnCheckedChangeListener { compoundButton, isChecked ->
+            if (isChecked) {
+                textureView.visibility = View.INVISIBLE
+            } else {
+                textureView.visibility = View.VISIBLE
+            }
         }
 
         cameraManager = applicationContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -425,8 +435,36 @@ class MainActivity : AppCompatActivity() {
             }
 
             SEEK_BAR_FOCUS -> {
-                //focus = progress
-                text_view_focus_value.text = "$focus"
+                // camera
+                if (cameraController is CameraController1) {
+                    // Manual focus is not supported
+                    // Set focus to infinity for slider all the way to right
+
+                    cameraController?.clearFocusAndMetering()
+
+                    if (progress == 100) {
+                        cameraController?.focusValue = "focus_mode_infinity"
+                    }
+                    // Otherwise set it to auto focus
+                    else {
+                        cameraController?.focusValue = "focus_mode_locked"
+                    }
+
+                    val params = (cameraController as CameraController1).parameters
+                    val output = FloatArray(3)
+                    params.getFocusDistances(output)
+
+                    text_view_focus_value.text = "${output[Camera.Parameters.FOCUS_DISTANCE_OPTIMAL_INDEX]}"
+                }
+                // camera2
+                else if (cameraController is CameraController2) {
+                    val minFocusDist: Float = cameraController?.cameraFeatures?.minimum_focus_distance ?: 0.0f
+                    // max focus distance in inf. (inputted as 0.0f)
+                    // progress = 0   -> focus = minFocusDist
+                    // progress = 100 -> focus = 0.0f
+                    focus =  minFocusDist - ((progress / 100.0f) * minFocusDist)
+                    text_view_focus_value.text = "$focus"
+                }
             }
 
             SEEK_BAR_GAIN -> {
@@ -557,7 +595,15 @@ class MainActivity : AppCompatActivity() {
                  */
                 cameraController?.setManualISO(true, gain)
                 cameraController?.exposureTime = exposure
+                cameraController?.focusDistance = focus
+                cameraController?.focusValue = "focus_mode_manual2"
             }
+
+            // Calculate FOV
+            val fovX = cameraController?.cameraFeatures?.view_angle_x
+            val fovY = cameraController?.cameraFeatures?.view_angle_y
+            val fovText = "FOV: $fovX (Horiz.) $fovY (Vert.)"
+            text_view_FOV.text =  fovText
         } catch (e: CameraAccessException) {
             e.printStackTrace()
         }
