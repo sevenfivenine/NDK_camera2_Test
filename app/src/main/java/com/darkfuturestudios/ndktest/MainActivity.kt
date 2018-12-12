@@ -11,8 +11,6 @@ import android.support.v4.app.ActivityCompat
 import android.support.v7.app.AppCompatActivity
 import android.util.Log
 import android.util.Range
-import android.util.Size
-import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.widget.SeekBar
@@ -26,8 +24,8 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
-import kotlin.math.atan
 import kotlin.math.exp
+import kotlin.math.min
 import kotlin.math.round
 
 class MainActivity : AppCompatActivity() {
@@ -43,6 +41,8 @@ class MainActivity : AppCompatActivity() {
         const val SEEK_BAR_FOCUS = 1
         const val SEEK_BAR_GAIN = 2
         const val SEEK_BAR_RES = 3
+
+        const val STACK_EXPOSURE_SECONDS = 10.0
 
         // Used to load the 'native-lib' library on application startup.
         init {
@@ -111,11 +111,17 @@ class MainActivity : AppCompatActivity() {
             takePhoto()
         }
 
+        fab_stack.setOnClickListener {
+            stackExposure(STACK_EXPOSURE_SECONDS)
+        }
+
         switch_hide_preview.setOnCheckedChangeListener { compoundButton, isChecked ->
             if (isChecked) {
                 textureView.visibility = View.INVISIBLE
+                image_view_stack.visibility = View.VISIBLE
             } else {
                 textureView.visibility = View.VISIBLE
+                image_view_stack.visibility = View.INVISIBLE
             }
         }
 
@@ -608,6 +614,106 @@ class MainActivity : AppCompatActivity() {
             e.printStackTrace()
         }
 
+    }
+
+    /**
+     * Many cameras (mostly camera but likely some camera2 hardware as well) do not have the ability
+     * to record 10 second exposures. Instead, we can stack smaller exposures to reach the desired
+     * exposure time (this is especially useful in situations where we do not have access to the
+     * camera's current exposure time)
+     */
+    fun stackExposure(exposureSeconds: Double) {
+        Log.d(TAG, "stackExposure()")
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "bitmap")
+        val width = textureView.bitmap.width
+        val height = textureView.bitmap.height
+        val config = textureView.bitmap.config
+
+        // GC Issues
+        val bitmapPixels = IntArray(width * height)
+
+        // GC Issues
+        //val stackedBitmapARGB = Array(width * height) { ARGBColor() }
+
+        val stackedImage = IntArray(width * height)
+        Log.d(TAG, "bitmap")
+
+
+        var i = 0
+        var bitmap: Bitmap
+
+        /*while (System.currentTimeMillis() - startTime < exposureSeconds/1000.0) {*/
+        while (i < 5) {
+            // This makes the bitmap immutable, preventing any possible changes
+            // This may not be necessary, but I'll leave it for now just in case
+            bitmap = Bitmap.createBitmap(textureView.bitmap)
+
+            // Loads pixels into stackedBitmap
+            bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            Log.d(TAG, "$bitmap")
+
+            // Decode packed ARGB ints
+            var color: Int
+            var A: Int
+            var R: Int
+            var G: Int
+            var B: Int
+
+            var stackedColor: Int
+            var stackedA: Int
+            var stackedR: Int
+            var stackedG: Int
+            var stackedB: Int
+
+            var sumA: Int
+            var sumR: Int
+            var sumG: Int
+            var sumB: Int
+
+            //var argbColor: ARGBColor
+
+            for (j in bitmapPixels.indices) {
+                color = bitmapPixels[j]
+                stackedColor = stackedImage[j]
+
+                // See https://developer.android.com/reference/android/graphics/Color#color-ints
+                A = color shr 24 and 0xff // or color >>> 24
+                R = color shr 16 and 0xff
+                G = color shr 8 and 0xff
+                B = color and 0xff
+
+                stackedA = stackedColor shr 24 and 0xff // or color >>> 24
+                stackedR = stackedColor shr 16 and 0xff
+                stackedG = stackedColor shr 8 and 0xff
+                stackedB = stackedColor and 0xff
+
+                // Creates a new instance. DO NOT DO THIS argbColor = ARGBColor(A, R, G, B)
+                // stackedBitmapARGB[j].stack(A, R, G, B)
+
+                sumA = min(stackedA + A, 255)
+                sumR = min(stackedR + R, 255)
+                sumG = min(stackedG + G, 255)
+                sumB = min(stackedB + B, 255)
+
+                // Encode back into packed RGBA int
+                stackedImage[j] = sumA and 0xff shl 24 or (sumR and 0xff shl 16) or (sumG and 0xff shl 8) or (sumB and 0xff)
+            }
+
+            if (cameraController is CameraController1) {
+
+            } else if (cameraController is CameraController2) {
+
+            }
+
+            i++
+        }
+
+        image_view_stack.setImageBitmap(Bitmap.createBitmap(stackedImage, width, height, config))
+
+        //cameraController?.stopPreview()
+        //val canvas = textureView.lockCanvas()
+        //canvas.drawARGB(255, 255, 0, 0)
     }
 
     //endregion
