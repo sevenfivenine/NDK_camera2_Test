@@ -23,10 +23,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.abs
-import kotlin.math.exp
-import kotlin.math.min
-import kotlin.math.round
+import kotlin.math.*
 
 class MainActivity : AppCompatActivity() {
 
@@ -43,6 +40,11 @@ class MainActivity : AppCompatActivity() {
         const val SEEK_BAR_RES = 3
 
         const val STACK_EXPOSURE_SECONDS = 10.0
+
+        // For experimenting
+        // 0: Nothing
+        // 1: Make the camera oscillate back and forth so the motion of the motor is visible
+        const val EASTER_EGG = 0
 
         // Used to load the 'native-lib' library on application startup.
         init {
@@ -146,6 +148,7 @@ class MainActivity : AppCompatActivity() {
                 //Log.d(TAG, "SurfaceTextureListener: UPDATED")
             }
         }
+
     }
 
     override fun onResume() {
@@ -193,6 +196,29 @@ class MainActivity : AppCompatActivity() {
             for ((key, seekBar) in seekBars) {
                 // Initialize the camera settings
                 calculateCameraSetting(seekBar.progress, key)
+            }
+
+            // Oscillate camera
+            if (EASTER_EGG == 1 && cameraController is CameraController2) {
+                Log.d(TAG, "Oscillate!")
+                Thread(Runnable {
+                    val timer = Timer()
+
+                    timer.scheduleAtFixedRate(object : TimerTask() {
+                        override fun run() {
+                            NDKTestUtil.LOG = false
+                            val minFocusDist: Float = cameraController?.cameraFeatures?.minimum_focus_distance ?: 0.0f
+                            focus = ((minFocusDist/2) + (minFocusDist/2) * sin(6 * System.currentTimeMillis()/1000.0)).toFloat()
+                            seekBars[SEEK_BAR_FOCUS]?.progress = (100.0f * (minFocusDist - focus)/minFocusDist).toInt()
+                            //text_view_focus_value.text = "$focus"
+                            cameraController?.focusDistance = focus
+                            cameraController?.focusValue = "focus_mode_manual2"
+                            Log.d(TAG, "Oscillating! $focus")
+                            NDKTestUtil.LOG = true
+                        }
+
+                    }, 0, 100)
+                }).start()
             }
         }
     }

@@ -11,7 +11,7 @@ public class NDKTestUtil {
     /**
      * If true, CameraController will log
      */
-    public static final boolean LOG = true;
+    public static boolean LOG = true;
 
     private static final String TAG = "NDKTestUtil";
 
