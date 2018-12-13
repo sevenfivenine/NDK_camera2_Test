@@ -2,6 +2,7 @@ package com.darkfuturestudios.ndktest
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.hardware.Camera
@@ -39,7 +40,7 @@ class MainActivity : AppCompatActivity() {
         const val SEEK_BAR_GAIN = 2
         const val SEEK_BAR_RES = 3
 
-        const val STACK_EXPOSURE_SECONDS = 10.0
+        const val STACK_EXPOSURE_SECONDS = 5.0
 
         // For experimenting
         // 0: Nothing
@@ -649,6 +650,7 @@ class MainActivity : AppCompatActivity() {
      * camera's current exposure time)
      */
     fun stackExposure(exposureSeconds: Double) {
+        fab_stack.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
         Log.d(TAG, "stackExposure()")
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "bitmap")
@@ -669,8 +671,8 @@ class MainActivity : AppCompatActivity() {
         var i = 0
         var bitmap: Bitmap
 
-        /*while (System.currentTimeMillis() - startTime < exposureSeconds/1000.0) {*/
-        while (i < 5) {
+        while (System.currentTimeMillis() - startTime < exposureSeconds*1000.0) {
+            Log.d(TAG, "Stacking!")
             // This makes the bitmap immutable, preventing any possible changes
             // This may not be necessary, but I'll leave it for now just in case
             bitmap = Bitmap.createBitmap(textureView.bitmap)
@@ -735,7 +737,30 @@ class MainActivity : AppCompatActivity() {
             i++
         }
 
-        image_view_stack.setImageBitmap(Bitmap.createBitmap(stackedImage, width, height, config))
+        val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
+        image_view_stack.setImageBitmap(stackedBitmap)
+
+        // Save photo
+
+        var outputPhoto: FileOutputStream? = null
+        try {
+            outputPhoto = FileOutputStream(createImageFile())
+            /** OpenCamera uses a much more sophisticated method of saving images
+             *  This is much simpler, but less versatile
+             *  We don't even use the data argument, just capture from textureView instead
+             */
+            stackedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try {
+                outputPhoto?.close()
+            } catch (e: IOException) {
+                e.printStackTrace()
+            }
+        }
+
+        fab_stack.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
 
         //cameraController?.stopPreview()
         //val canvas = textureView.lockCanvas()
