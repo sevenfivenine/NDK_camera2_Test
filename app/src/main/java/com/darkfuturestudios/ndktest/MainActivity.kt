@@ -76,6 +76,8 @@ class MainActivity : AppCompatActivity() {
     private var gain: Int = 0 // camera2
     private var gainString: String = "" // camera
     private var resolution: CameraController.Size? = null
+    private var fovX: Float? = 0.0f  // camera angular fieid of view width, in degrees
+    private var fovY: Float? = 0.0f  // camera angular field of view height, in degrees
 
     //endregion
 
@@ -633,8 +635,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Calculate FOV
-            val fovX = cameraController?.cameraFeatures?.view_angle_x
-            val fovY = cameraController?.cameraFeatures?.view_angle_y
+            fovX = cameraController?.cameraFeatures?.view_angle_x
+            fovY = cameraController?.cameraFeatures?.view_angle_y
             val fovText = "FOV: $fovX (Horiz.) $fovY (Vert.)"
             text_view_FOV.text =  fovText
         } catch (e: CameraAccessException) {
@@ -740,6 +742,10 @@ class MainActivity : AppCompatActivity() {
         val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
         image_view_stack.setImageBitmap(stackedBitmap)
 
+        // Process stacked image in native code
+
+        processImageBuffer ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f )
+
         // Save photo
 
         var outputPhoto: FileOutputStream? = null
@@ -797,6 +803,7 @@ class MainActivity : AppCompatActivity() {
      */
     private external fun computeOrbitParams(a: Float, e: Float): String
 
+    private external fun processImageBuffer (data:IntArray, width:Int, height:Int, widthAngle:Float, heightAngle:Float ): Int
     //endregion
 
 }
