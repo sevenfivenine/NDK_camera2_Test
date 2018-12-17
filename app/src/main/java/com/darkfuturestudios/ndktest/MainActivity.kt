@@ -402,7 +402,8 @@ class MainActivity : AppCompatActivity() {
                      *  This is much simpler, but less versatile
                      *  We don't even use the data argument, just capture from textureView instead
                      */
-                    textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                    //textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                    textureView.getBitmap(resolution!!.height, resolution!!.width).compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 } finally {
@@ -453,6 +454,9 @@ class MainActivity : AppCompatActivity() {
         // Calculate camera setting
         when (key) {
             SEEK_BAR_EXPOSURE -> {
+                val minExposureTime = cameraController?.cameraFeatures?.min_exposure_time ?: 0
+                val maxExposureTime = cameraController?.cameraFeatures?.max_exposure_time ?: 0
+
                 // camera
                 if (cameraController is CameraController1) {
                     val minExp = cameraController?.cameraFeatures?.min_exposure ?: 0
@@ -462,7 +466,19 @@ class MainActivity : AppCompatActivity() {
                 }
                 // camera2
                 else if (cameraController is CameraController2) {
-                    exposure = (100000 * exp(0.069 * progress)).toLong()
+                    // If max exposure time of the camera is greater than 10 seconds
+                    // We do not ever need to use stacking
+                    if (maxExposureTime >= 10000000000) {
+                        exposure = (minExposureTime + (progress / 100.0f) * (10000000000 - minExposureTime)).toLong()
+                        exposure = (minExposureTime * exp(0.01*ln(10000000000.0/minExposureTime) * progress)).toLong()
+                    }
+
+                    // If max exposure time of the camera is less than 10 seconds
+                    // Stacking is necessary past max exposure time
+                    else {
+                        exposure = (100000 * exp(0.069 * progress)).toLong()
+                    }
+
                     text_view_exposure_value.text = "%d ms".format(exposure/1000000)
                 }
             }
@@ -622,6 +638,9 @@ class MainActivity : AppCompatActivity() {
             // camera2
             else if (cameraController is CameraController2) {
                 Log.d(TAG, "Using camera2")
+                Log.d(TAG, "Min exposure time: ${cameraController?.cameraFeatures?.min_exposure_time}")
+                Log.d(TAG, "Max exposure time: ${cameraController?.cameraFeatures?.max_exposure_time}")
+                Log.d(TAG, "Current exposure time: ${cameraController?.exposureTime}")
                 /**
                  * CameraController will not allow auto exposure to turn off unless we also set a
                  * manual ISO first
@@ -654,9 +673,15 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "stackExposure()")
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "bitmap")
-        val width = textureView.bitmap.width
-        val height = textureView.bitmap.height
-        val config = textureView.bitmap.config
+        val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
+        val width = previewBitmap.width
+        val height = previewBitmap.height
+        val config = previewBitmap.config
+        //val width = textureView.bitmap.width
+        //val height = textureView.bitmap.height
+        //val config = textureView.bitmap.config
+
+        Log.d(TAG, "Resolution: $resolution, bitmap res $width x $height")
 
         // GC Issues
         val bitmapPixels = IntArray(width * height)
@@ -675,7 +700,8 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Stacking!")
             // This makes the bitmap immutable, preventing any possible changes
             // This may not be necessary, but I'll leave it for now just in case
-            bitmap = Bitmap.createBitmap(textureView.bitmap)
+            //bitmap = Bitmap.createBitmap(textureView.bitmap)
+            bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
 
             // Loads pixels into stackedBitmap
             bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
