@@ -17,7 +17,13 @@ add_library( # Sets the name of the library.
              SHARED
 
              # Provides a relative path to your source file(s).
-             src/main/cpp/native-lib.cpp )
+             src/main/cpp/native-lib.cpp
+             src/main/cpp/AstroLib/AATime.c
+             src/main/cpp/AstroLib/AAAngle.c
+             src/main/cpp/AstroLib/AACoordinates.c
+             src/main/cpp/AstroLib/AAReduction.c
+             src/main/cpp/AstroLib/Astrometry.c
+             src/main/cpp/AstroLib/NMatrix.c )
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by
@@ -42,3 +48,7 @@ target_link_libraries( # Specifies the target library.
                        # Links the target library to the log library
                        # included in the NDK.
                        ${log-lib} )
+
+# Specifies directories to seach for header files - Added by TCD 2018-12-17
+
+include_directories( src/main/cpp/AstroLib )
