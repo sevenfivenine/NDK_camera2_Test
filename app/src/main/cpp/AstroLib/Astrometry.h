@@ -454,6 +454,21 @@ void ASTROLIBDLL_API A3ImageInit ( A3Image *pImage, double lon, double lat, doub
 					 double ra, double dec, double angle,
 					 int width, int height, int depth, void *data );
 
+/*** A3ImageFree *********************************************************************
+
+	De-initializes an A3Image structure and releases memory for all associated data.
+
+	void A3ImageFree ( A3Image *pImage )
+
+  	(pImage): pointer to A3Image structure to release memory.
+
+	This function frees memory for the image's pObjects, pReferences, and pData arrays.
+ 	It does not close the image's pLogFile, or free memory for the image itself.
+
+**************************************************************************************/
+
+void ASTROLIBDLL_API A3ImageFree ( A3Image *pImage );
+
 /*** A3ImageSetLonLatJD *************************************************************
  
 	Sets the location and time at which an image was taken.

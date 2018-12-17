@@ -765,12 +765,11 @@ class MainActivity : AppCompatActivity() {
             i++
         }
 
-        val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
-        image_view_stack.setImageBitmap(stackedBitmap)
-
         // Process stacked image in native code
 
         processImageBuffer ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f )
+        val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
+        image_view_stack.setImageBitmap(stackedBitmap)
 
         // Save photo
 

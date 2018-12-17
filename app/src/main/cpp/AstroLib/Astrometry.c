@@ -446,18 +446,7 @@ void A3ImageInit ( A3Image *pImage, double lon, double lat, double jd, double ra
 {
 	int row, col;
 	
-	// Delete any previously existing image data, any previously-found objects,
-	// and any reference objects, then zero out the whole structure.
-	
-	free ( pImage->pObjects );
-	pImage->pObjects = NULL;
-	
-	free ( pImage->pReferences );
-	pImage->pReferences = NULL;
-	
-	NDestroyMatrix ( (void **) pImage->pData );
-	pImage->pData = NULL;
-	
+	A3ImageFree ( pImage );
 	memset ( pImage, 0, sizeof ( A3Image ) );
 	
 	// Set time and location. If they are known, calculate
@@ -514,6 +503,23 @@ void A3ImageInit ( A3Image *pImage, double lon, double lat, double jd, double ra
 			pPix16 += depth;
 		}
 	}
+}
+
+/*** A3ImageFree ******************************************************************/
+
+void A3ImageFree ( A3Image *pImage )
+{
+    // Delete any previously existing image data, any previously-found objects,
+    // and any reference objects, then zero out the whole structure.
+
+    free ( pImage->pObjects );
+    pImage->pObjects = NULL;
+
+    free ( pImage->pReferences );
+    pImage->pReferences = NULL;
+
+    NDestroyMatrix ( (void **) pImage->pData );
+    pImage->pData = NULL;
 }
 
 /*** A3ImageSetLonLatJD **********************************************************/
