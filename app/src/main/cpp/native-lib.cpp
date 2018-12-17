@@ -58,7 +58,7 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
     int *pixels = env->GetIntArrayElements ( pixelArray, 0 );
 
     double sumR = 0.0, sumG = 0.0, sumB = 0.0, sumA = 0;
-    int8_t r = 0, g = 0, b = 0 , a = 0;
+    uint8_t r = 0, g = 0, b = 0 , a = 0;
 
     for ( int i = 0; i < len; i++ )
     {
