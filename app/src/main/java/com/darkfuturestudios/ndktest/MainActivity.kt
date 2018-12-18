@@ -471,7 +471,8 @@ class MainActivity : AppCompatActivity() {
                     // If max exposure time of the camera is greater than 10 seconds
                     // We do not ever need to use stacking
                     if (maxExposureTime >= 10000000000) {
-                        exposure = (minExposureTime + (progress / 100.0f) * (10000000000 - minExposureTime)).toLong()
+                        // linear: exposure = (minExposureTime + (progress / 100.0f) * (10000000000 - minExposureTime)).toLong()
+                        // exponential:
                         exposure = (minExposureTime * exp(0.01*ln(10000000000.0/minExposureTime) * progress)).toLong()
                     }
 
@@ -654,8 +655,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Calculate FOV
-            fovX = cameraController?.cameraFeatures?.view_angle_x
-            fovY = cameraController?.cameraFeatures?.view_angle_y
+            fovX = cameraController?.cameraFeatures?.view_angle_y
+            fovY = cameraController?.cameraFeatures?.view_angle_x
             val fovText = "FOV: $fovX (Horiz.) $fovY (Vert.)"
             text_view_FOV.text =  fovText
         } catch (e: CameraAccessException) {
@@ -683,7 +684,8 @@ class MainActivity : AppCompatActivity() {
         //val height = textureView.bitmap.height
         //val config = textureView.bitmap.config
 
-        Log.d(TAG, "Resolution: $resolution, bitmap res $width x $height")
+        Log.d(TAG, "Resolution: width ${resolution?.width} height ${resolution?.height}, bitmap res width $width x height $height")
+        Log.d(TAG, "FOV width $fovX height $fovY")
 
         // GC Issues
         val bitmapPixels = IntArray(width * height)
