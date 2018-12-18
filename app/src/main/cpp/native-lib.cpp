@@ -56,9 +56,53 @@ Java_com_darkfuturestudios_ndktest_MainActivity_computeOrbitParams(
 }
 
 extern "C" JNIEXPORT jint
-
 JNICALL
-Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
+Java_com_darkfuturestudios_ndktest_MainActivity_stackImageBuffers(
+        JNIEnv *env,
+        jobject,
+        jintArray pixelArray,
+        jint width,
+        jint height,
+        jintArray stackedPixelArray)
+{
+    jsize len = env->GetArrayLength(pixelArray);
+    jsize stackedLen = env->GetArrayLength(stackedPixelArray);
+
+    if (len != stackedLen || len != width * height) {
+        LOG_ERROR ("stackImageBuffers: inconsistent array lengths (%d vs %d x %d vs %d",
+                   len, width, height, stackedLen);
+        return -1;
+    }
+
+    uint32_t *pixels = (uint32_t *) env->GetIntArrayElements(pixelArray, 0);
+    uint32_t *stackedPixels = (uint32_t *) env->GetIntArrayElements(stackedPixelArray, 0);
+
+    uint8_t r = 0, g = 0, b = 0;
+    uint32_t stackedR = 0, stackedG = 0, stackedB = 0;
+
+    for (int i = 0; i < len; i++)
+    {
+        r = pixels[i] & 0x000000ff;
+        g = (pixels[i] >> 8) & 0x000000FF;
+        b = (pixels[i] >> 16) & 0x000000FF;
+
+        stackedR = stackedPixels[i] & 0x000000FF;
+        stackedG = (stackedPixels[i] >> 8) & 0x000000FF;
+        stackedB = (stackedPixels[i] >> 16) & 0x000000FF;
+
+        stackedR = MIN ( stackedR + r, 255 );
+        stackedG = MIN ( stackedG + g, 255 );
+        stackedB = MIN ( stackedB + b, 255 );
+
+        stackedPixels[i] = 0xFF000000 | (stackedB << 16) | (stackedG << 8) | stackedR;
+    }
+
+    return 0;
+}
+
+extern "C" JNIEXPORT jint
+JNICALL
+Java_com_darkfuturestudios_ndktest_MainActivity_processStackedImage(
         JNIEnv *env,
         jobject,
         jintArray pixelArray,
@@ -68,39 +112,23 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
         jfloat heightAngle,
         jstring logDir)
 {
-    jsize len = env->GetArrayLength ( pixelArray );
-    uint32_t *pixels = (uint32_t *) env->GetIntArrayElements ( pixelArray, 0 );
     const char *logDirString = env->GetStringUTFChars ( logDir, 0 );
     char logPath[256] = { 0 };
 
-#if 0
+    // Open log file
 
-    double sumR = 0.0, sumG = 0.0, sumB = 0.0, sumA = 0;
-    uint8_t r = 0, g = 0, b = 0 , a = 0;
-
-    for ( int i = 0; i < len; i++ )
-    {
-        r = pixels[i] & 0x000000ff;
-        g = ( pixels[i] >> 8 ) & 0x000000ff;
-        b = ( pixels[i] >> 16 ) & 0x000000ff;
-        a = ( pixels[i] >> 24 ) & 0x000000ff;
-
-        sumR += r;
-        sumG += g;
-        sumB += b;
-        sumA += a;
-
-        pixels[i] = r | ( (int) g << 8 ) | ( (int) b << 16 ) | ( (int) a << 24 );
-    }
-
-    LOG_INFO ( "sumR = %.0f, sumG = %0.f, sumB = %.0f, sumA = %.0f", sumR, sumG, sumB, sumA );
-
-#endif
-
-    strncpy ( logPath, logDirString, sizeof ( logPath ) );
-    strncat ( logPath, "/AstrometryLog.txt", sizeof ( logPath ) );
+    strlcpy ( logPath, logDirString, sizeof ( logPath ) );
+    strlcat ( logPath, "/AstrometryLog.txt", sizeof ( logPath ) );
+    FILE *logFile = fopen ( logPath, "a" );
+    if ( logFile == NULL )
+        LOG_ERROR ( "Can't open log file %s!", logPath );
 
     env->ReleaseStringUTFChars ( logDir, logDirString );
+
+    // Get length of, and pointer to, 32-bit ARGB image pixel data from the camera
+
+    jsize len = env->GetArrayLength ( pixelArray );
+    uint32_t *pixels = (uint32_t *) env->GetIntArrayElements ( pixelArray, 0 );
 
     // Initialize sky image struct with data from the camera
 
@@ -111,6 +139,9 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
     double fov = DEG_TO_RAD ( MAX ( widthAngle, heightAngle ) );
 
     A3ImageInit ( &skyImage, lon, lat, jd, HUGE_VAL, HUGE_VAL, fov, width, height, A3IMAGE_RGBA8, pixels );
+    skyImage.pLogFile = logFile;
+
+    A3ImagePrint ( &skyImage, logFile );
 
     // Compute image overall statistics.
     // If image is too bright or has insufficient contrast, refuse to find any objects.
@@ -121,8 +152,14 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
     if ( stats.fMedian > 192 || stats.fMax - stats.fMin < 2 )
     {
         A3ImageFree ( &skyImage );
-        LOG_INFO ( "Image too bright (median=%.0f) or has insufficient contrast (%.0f); exiting.\n", stats.fMedian, stats.fMax - stats.fMin );
-        return ( -1 );
+        if ( logFile )
+        {
+            fprintf(logFile,
+                    "Image too bright (median=%.0f) or has insufficient contrast (%.0f); exiting.\n",
+                    stats.fMedian, stats.fMax - stats.fMin);
+            fclose(logFile);
+            return(-1);
+        }
     }
 
     // Now find objects in the image, but use only the brightest MAX_OBJECTS.
@@ -136,7 +173,8 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
     if ( nFound > MAX_OBJECTS )
         skyImage.nObjects = MAX_OBJECTS;
 
-    LOG_INFO ( "Total %d objects found.\n", skyImage.nObjects );
+    if ( logFile )
+        fprintf ( logFile, "Total %d objects found.\n", skyImage.nObjects );
 
     // If image center is unknown, use reference stars to mag 3.5; otherwise use stars to 4.5.
 
@@ -162,7 +200,8 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
 
     int nRefs = AddReferenceSolarSystemObjects ( &skyImage );
     qsort ( skyImage.pReferences, skyImage.nReferences, sizeof ( A3Reference ), CompareSkyReferenceMagnitudes );
-    LOG_INFO ( "Total %d references.\n", skyImage.nReferences );
+    if ( logFile )
+        fprintf ( logFile, "Total %d references.\n", skyImage.nReferences );
 
     // Now attempt to identify objects in the image.  If we only attempt to identify the 6 brightest
     // objects, we'll get an answer much faster, and this usually works.  But we may fail to correctly
@@ -177,20 +216,26 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
     params.timeout = TIMEOUT;
 
     int success = A3ImageIdentifyObjects ( &skyImage, &params );
-    if ( ! success )
+    if ( success )
     {
-        LOG_INFO ( "Failed to identify enough objects to determine field of view.\n" );
-        A3ImagePrintObjects ( &skyImage, stdout );
-        return ( 0 );
+        if (logFile)
+            fprintf(logFile, "Failed to identify enough objects to determine field of view.\n");
+    }
+    else
+    {
+        if ( logFile )
+            fprintf ( logFile, "%d objects matched, mean error is %.2f°.\n",
+                  params.nObjsMatched,
+                  RAD_TO_DEG ( params.meanError ) );
     }
 
-    LOG_INFO ( "%d objects matched, mean error is %.2f°.\n",
-               params.nObjsMatched,
-               RAD_TO_DEG ( params.meanError ) );
+    if ( logFile )
+        A3ImagePrintIdentifiedObjects ( &skyImage, FALSE, logFile );
 
     // Release memory for sky image data
 
     A3ImageFree ( &skyImage );
+    fclose ( logFile );
     return ( 0 );
 }
 
