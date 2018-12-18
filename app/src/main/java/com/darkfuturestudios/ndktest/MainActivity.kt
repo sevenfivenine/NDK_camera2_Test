@@ -40,8 +40,6 @@ class MainActivity : AppCompatActivity() {
         const val SEEK_BAR_GAIN = 2
         const val SEEK_BAR_RES = 3
 
-        const val STACK_EXPOSURE_SECONDS = 5.0
-
         // For experimenting
         // 0: Nothing
         // 1: Make the camera oscillate back and forth so the motion of the motor is visible
@@ -72,7 +70,24 @@ class MainActivity : AppCompatActivity() {
     // Camera settings
     private var exposure: Long = 1000000L // camera2; Exposure time (Nanoseconds)
     private var exposureCompensation: Double = 0.0 // camera
-    private var exposureStackTime: Long = 0L // How long to stack exposure (Nanoseconds)
+
+    // Stacking
+
+    /**
+     * How long to stack exposure (Nanoseconds)
+     */
+    private var exposureStackTime: Long = 0L
+
+    /**
+     * Time when stacking started (Milliseconds)
+     */
+    private var stackingStartTime: Long = 0L
+
+    /**
+     * When stacking is active, the image data is stored here
+     */
+    private var stackedImage: IntArray = IntArray(0)
+
     private var focus: Float = 0.0f
     private var gain: Int = 0 // camera2
     private var gainString: String = "" // camera
@@ -114,11 +129,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         fabTakePhoto.setOnClickListener {
-            takePhoto()
+            takePhoto(true, false)
         }
 
         fab_stack.setOnClickListener {
-            stackExposure(STACK_EXPOSURE_SECONDS)
+            stackExposure()
         }
 
         switch_hide_preview.setOnCheckedChangeListener { compoundButton, isChecked ->
@@ -362,7 +377,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * Take Photo by calling CameraController.takePicture()
      */
-    private fun takePhoto() {
+    private fun takePhoto(save: Boolean, stack: Boolean) {
         Log.d(TAG, "Take photo")
 
         if (!textureView.isAvailable) {
@@ -378,6 +393,11 @@ class MainActivity : AppCompatActivity() {
             override fun onCompleted() {
                 Log.d(TAG, "PictureCallback.onCompleted()")
 
+                // For stacking. When finished taking photo, do next capture
+                if (stack) {
+                    runSingleStack()
+                }
+/*
                 /** For camera2, we need to pause the preview to indicate to the user a photo has
                  *  been captured. For camera, pause is done automatically */
 
@@ -392,7 +412,7 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: CameraControllerException) {
                     e.printStackTrace()
                 }
-
+*/
             }
 
             /**
@@ -401,23 +421,47 @@ class MainActivity : AppCompatActivity() {
             override fun onPictureTaken(data: ByteArray?) {
                 Log.d(TAG, "PictureCallback.onPictureTaken()")
 
-                var outputPhoto: FileOutputStream? = null
-                try {
-                    outputPhoto = FileOutputStream(createImageFile())
-                    /** OpenCamera uses a much more sophisticated method of saving images
-                     *  This is much simpler, but less versatile
-                     *  We don't even use the data argument, just capture from textureView instead
-                     */
-                    //textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
-                    textureView.getBitmap(resolution!!.height, resolution!!.width).compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
+                if (save) {
+                    var outputPhoto: FileOutputStream? = null
                     try {
-                        outputPhoto?.close()
-                    } catch (e: IOException) {
+                        outputPhoto = FileOutputStream(createImageFile())
+                        /** OpenCamera uses a much more sophisticated method of saving images
+                         *  This is much simpler, but less versatile
+                         *  We don't even use the data argument, just capture from textureView instead
+                         */
+                        //textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                        textureView.getBitmap(resolution!!.height, resolution!!.width).compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                    } catch (e: Exception) {
                         e.printStackTrace()
+                    } finally {
+                        try {
+                            outputPhoto?.close()
+                        } catch (e: IOException) {
+                            e.printStackTrace()
+                        }
                     }
+                }
+
+                /**
+                 * For stacking: Data has been captured. Now send it to C
+                 */
+                if (stack) {
+                    val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
+                    val width = previewBitmap.width
+                    val height = previewBitmap.height
+                    val config = previewBitmap.config
+
+                    // This makes the bitmap immutable, preventing any possible changes
+                    // This may not be necessary, but I'll leave it for now just in case
+                    val bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
+
+                    val bitmapPixels = IntArray(width * height)
+
+                    // Loads pixels into stackedBitmap
+                    bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                    Log.d(TAG, "$bitmap")
+
+                    stackImageBuffers( bitmapPixels, width, height, stackedImage )
                 }
             }
 
@@ -719,137 +763,93 @@ class MainActivity : AppCompatActivity() {
      * exposure time (this is especially useful in situations where we do not have access to the
      * camera's current exposure time)
      */
-    fun stackExposure(exposureSeconds: Double) {
+    fun stackExposure() {
         fab_stack.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
         Log.d(TAG, "stackExposure()")
-        val startTime = System.currentTimeMillis()
-        Log.d(TAG, "bitmap")
+        //val startTime = System.currentTimeMillis()
+
         val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
         val width = previewBitmap.width
         val height = previewBitmap.height
         val config = previewBitmap.config
-        //val width = textureView.bitmap.width
-        //val height = textureView.bitmap.height
-        //val config = textureView.bitmap.config
 
-        Log.d(TAG, "Resolution: width ${resolution?.width} height ${resolution?.height}, bitmap res width $width x height $height")
-        Log.d(TAG, "FOV width $fovX height $fovY")
+        //Log.d(TAG, "Resolution: width ${resolution?.width} height ${resolution?.height}, bitmap res width $width x height $height")
+        //Log.d(TAG, "FOV width $fovX height $fovY")
 
         // GC Issues
-        val bitmapPixels = IntArray(width * height)
+        //val bitmapPixels = IntArray(width * height)
 
-        // GC Issues
-        //val stackedBitmapARGB = Array(width * height) { ARGBColor() }
+        // Initialize stacked image member to store data
+        stackedImage = IntArray(width * height)
 
-        val stackedImage = IntArray(width * height)
-        Log.d(TAG, "bitmap")
+        //var bitmap: Bitmap
 
+        stackingStartTime = System.currentTimeMillis()
 
-        var i = 0
-        var bitmap: Bitmap
-
-        while (System.currentTimeMillis() - startTime < exposureSeconds*1000.0) {
-            Log.d(TAG, "Stacking!")
-            // This makes the bitmap immutable, preventing any possible changes
-            // This may not be necessary, but I'll leave it for now just in case
-            //bitmap = Bitmap.createBitmap(textureView.bitmap)
-            bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
-
-            // Loads pixels into stackedBitmap
-            bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-            Log.d(TAG, "$bitmap")
-
-            stackImageBuffers( bitmapPixels, width, height, stackedImage )
-
-/*
-            // Decode packed ARGB ints
-            var color: Int
-            var A: Int
-            var R: Int
-            var G: Int
-            var B: Int
-
-            var stackedColor: Int
-            var stackedA: Int
-            var stackedR: Int
-            var stackedG: Int
-            var stackedB: Int
-
-            var sumA: Int
-            var sumR: Int
-            var sumG: Int
-            var sumB: Int
-
-            //var argbColor: ARGBColor
-
-            for (j in bitmapPixels.indices) {
-                color = bitmapPixels[j]
-                stackedColor = stackedImage[j]
-
-                // See https://developer.android.com/reference/android/graphics/Color#color-ints
-                A = color shr 24 and 0xff // or color >>> 24
-                R = color shr 16 and 0xff
-                G = color shr 8 and 0xff
-                B = color and 0xff
-
-                stackedA = stackedColor shr 24 and 0xff // or color >>> 24
-                stackedR = stackedColor shr 16 and 0xff
-                stackedG = stackedColor shr 8 and 0xff
-                stackedB = stackedColor and 0xff
-
-                // Creates a new instance. DO NOT DO THIS argbColor = ARGBColor(A, R, G, B)
-                // stackedBitmapARGB[j].stack(A, R, G, B)
-
-                sumA = min(stackedA + A, 255)
-                sumR = min(stackedR + R, 255)
-                sumG = min(stackedG + G, 255)
-                sumB = min(stackedB + B, 255)
-
-                // Encode back into packed RGBA int
-                stackedImage[j] = sumA and 0xff shl 24 or (sumR and 0xff shl 16) or (sumG and 0xff shl 8) or (sumB and 0xff)
-            }
-
-            if (cameraController is CameraController1) {
-
-            } else if (cameraController is CameraController2) {
-
-            }
-*/
-            i++
-        }
-
-        // Process stacked image in native code
-
-        val galleryPath: String = galleryFolder.absolutePath
-        processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, galleryPath )
-        val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
-        image_view_stack.setImageBitmap(stackedBitmap)
-
-        // Save photo
-
-        var outputPhoto: FileOutputStream? = null
-        try {
-            outputPhoto = FileOutputStream(createImageFile())
-            /** OpenCamera uses a much more sophisticated method of saving images
-             *  This is much simpler, but less versatile
-             *  We don't even use the data argument, just capture from textureView instead
-             */
-            stackedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        } finally {
-            try {
-                outputPhoto?.close()
-            } catch (e: IOException) {
-                e.printStackTrace()
-            }
-        }
-
-        fab_stack.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
+        runSingleStack()
 
         //cameraController?.stopPreview()
         //val canvas = textureView.lockCanvas()
         //canvas.drawARGB(255, 255, 0, 0)
+    }
+
+    /**
+     * Runs one iteration of stacking
+     * Or, if stacking is finished: Processes, displays, and saves stacked image
+     * This calls takePhoto()
+     * First, we must check if the stacking is finished
+     */
+    fun runSingleStack() {
+        // Still stacking?
+        if (System.currentTimeMillis() - stackingStartTime < exposureStackTime/1000000.0) {
+            Log.d(TAG, "Stacking!")
+
+
+            // First capture the light on the preview
+            takePhoto(false, true)
+        }
+
+        // Stacking completed
+        else {
+            // Process stacked image in native code
+
+            val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
+            val width = previewBitmap.width
+            val height = previewBitmap.height
+            val config = previewBitmap.config
+
+            val galleryPath: String = galleryFolder.absolutePath
+            processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, galleryPath )
+
+            // Display stacked image
+
+            val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
+            image_view_stack.setImageBitmap(stackedBitmap)
+
+            // Save stacked image
+
+            var outputPhoto: FileOutputStream? = null
+            try {
+                outputPhoto = FileOutputStream(createImageFile())
+                /** OpenCamera uses a much more sophisticated method of saving images
+                 *  This is much simpler, but less versatile
+                 *  We don't even use the data argument, just capture from textureView instead
+                 */
+                stackedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                try {
+                    outputPhoto?.close()
+                } catch (e: IOException) {
+                    e.printStackTrace()
+                }
+            }
+
+            // Change FAB color back to blue
+            fab_stack.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
+        }
+
     }
 
     //endregion
