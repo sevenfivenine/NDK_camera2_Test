@@ -2942,7 +2942,7 @@ public class CameraController2 extends CameraController {
 		}
 		try {
 			camera_settings.exposure_time = exposure_time;
-			if( camera_settings.setAEMode(previewBuilder, false) ) {
+			if( camera_settings.setAEMode(previewBuilder, true) ) {
 		    	setRepeatingRequest();
 			}
 		}

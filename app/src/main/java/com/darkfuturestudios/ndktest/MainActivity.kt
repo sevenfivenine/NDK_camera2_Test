@@ -394,6 +394,9 @@ class MainActivity : AppCompatActivity() {
 
             }
 
+            /**
+             * @param data contains EXIF data from the camera, including exposure time
+             */
             override fun onPictureTaken(data: ByteArray?) {
                 Log.d(TAG, "PictureCallback.onPictureTaken()")
 
