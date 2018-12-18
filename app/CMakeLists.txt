@@ -22,8 +22,11 @@ add_library( # Sets the name of the library.
              src/main/cpp/AstroLib/AAAngle.c
              src/main/cpp/AstroLib/AACoordinates.c
              src/main/cpp/AstroLib/AAReduction.c
+             src/main/cpp/AstroLib/AAPhysicalEphemeris.c
              src/main/cpp/AstroLib/Astrometry.c
-             src/main/cpp/AstroLib/NMatrix.c )
+             src/main/cpp/AstroLib/BrightStars.c
+             src/main/cpp/AstroLib/NMatrix.c
+             src/main/cpp/AstroLib/VFPlanet.c )
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by
@@ -52,3 +55,4 @@ target_link_libraries( # Specifies the target library.
 # Specifies directories to seach for header files - Added by TCD 2018-12-17
 
 include_directories( src/main/cpp/AstroLib )
+add_definitions ( -DANDROID_NDK )
