@@ -77,12 +77,12 @@ Java_com_darkfuturestudios_ndktest_MainActivity_stackImageBuffers(
     uint32_t *pixels = (uint32_t *) env->GetIntArrayElements(pixelArray, 0);
     uint32_t *stackedPixels = (uint32_t *) env->GetIntArrayElements(stackedPixelArray, 0);
 
-    uint8_t r = 0, g = 0, b = 0;
+    uint32_t r = 0, g = 0, b = 0;
     uint32_t stackedR = 0, stackedG = 0, stackedB = 0;
 
     for (int i = 0; i < len; i++)
     {
-        r = pixels[i] & 0x000000ff;
+        r = pixels[i] & 0x000000FF;
         g = (pixels[i] >> 8) & 0x000000FF;
         b = (pixels[i] >> 16) & 0x000000FF;
 
