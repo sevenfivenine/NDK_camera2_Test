@@ -8,6 +8,7 @@ import android.graphics.SurfaceTexture
 import android.hardware.Camera
 import android.hardware.camera2.*
 import android.os.*
+import android.support.design.widget.FloatingActionButton
 import android.support.v4.app.ActivityCompat
 import android.support.v7.app.AppCompatActivity
 import android.util.Log
@@ -76,7 +77,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * How long to stack exposure (Nanoseconds)
      */
-    private var exposureStackTime: Long = 0L
+    private var stackDuration: Long = 0L
 
     /**
      * Time when stacking started (Milliseconds)
@@ -84,9 +85,21 @@ class MainActivity : AppCompatActivity() {
     private var stackingStartTime: Long = 0L
 
     /**
+     * Amount of time the shutter stays open for each stack capture (Nanoseconds)
+     * TODO Change from 1/12 of a second?
+     */
+    private var stackingExposureTime: Long = (1000000000*(1.0/12)).toLong()
+
+    /**
      * When stacking is active, the image data is stored here
      */
     private var stackedImage: IntArray = IntArray(0)
+
+    /**
+     * When true, FAB becomes stack button
+     * When false, FAB becomes photo button
+     */
+    private var stackMode: Boolean = false
 
     private var focus: Float = 0.0f
     private var gain: Int = 0 // camera2
@@ -129,12 +142,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         fabTakePhoto.setOnClickListener {
-            takePhoto(true, false)
+            if (stackMode) stackExposure() else takePhoto(true, false)
         }
 
-        fab_stack.setOnClickListener {
+        /*fab_stack.setOnClickListener {
             stackExposure()
-        }
+        }*/
 
         switch_hide_preview.setOnCheckedChangeListener { compoundButton, isChecked ->
             if (isChecked) {
@@ -540,7 +553,7 @@ class MainActivity : AppCompatActivity() {
                     // interest to go the safe route and stack
 
                     // The point where the slider switches from changing exposure time to stacking
-                    val minStackingProgress = 66.7
+                    val minStackingProgress = 50.1
 
                     // TODO Add a check, in the off-chance that a camera2 device is unable to support a 1/12 second exposure time
                     val previewMaxExposureTime = (1.0/12) * 1000000000L
@@ -553,6 +566,10 @@ class MainActivity : AppCompatActivity() {
                      * previewMaxExposureTime (1/12 second is a good value, used on OpenCamera)
                      */
                     if (progress < minStackingProgress) {
+                        stackMode = false
+                        (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_camera)
+                        // Not stacking
+                        stackDuration = 0L
                         // Progress through the exposure time portion of the seek bar
                         // 0 to 1
                         val exposureTimeProgress = progress/minStackingProgress
@@ -566,14 +583,18 @@ class MainActivity : AppCompatActivity() {
                      * Stack exposure
                      */
                     else {
+                        stackMode = true
+                        (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_stack)
+                        // Set the exposure time (for each capture)
+                        exposure = stackingExposureTime
                         // Progress through the stacking portion of the seek bar
                         // 0 to 1
                         val stackProgress = (progress - minStackingProgress)/(100.0f - minStackingProgress)
 
                         // Linear
-                        exposureStackTime = (previewMaxExposureTime + (stackProgress * maxStackTime - previewMaxExposureTime)).toLong()
+                        stackDuration = (previewMaxExposureTime + (stackProgress * maxStackTime - previewMaxExposureTime)).toLong()
 
-                        text_view_exposure_value.text = "%.2f ms".format(exposureStackTime/1000000.0)
+                        text_view_exposure_value.text = "%.2f ms".format(stackDuration/1000000.0)
                     }
                 }
             }
@@ -764,7 +785,7 @@ class MainActivity : AppCompatActivity() {
      * camera's current exposure time)
      */
     fun stackExposure() {
-        fab_stack.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
+        fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
         Log.d(TAG, "stackExposure()")
         //val startTime = System.currentTimeMillis()
 
@@ -801,7 +822,7 @@ class MainActivity : AppCompatActivity() {
      */
     fun runSingleStack() {
         // Still stacking?
-        if (System.currentTimeMillis() - stackingStartTime < exposureStackTime/1000000.0) {
+        if (System.currentTimeMillis() - stackingStartTime < stackDuration/1000000.0) {
             Log.d(TAG, "Stacking!")
 
 
@@ -847,7 +868,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Change FAB color back to blue
-            fab_stack.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
+            fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
         }
 
     }

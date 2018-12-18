@@ -16,7 +16,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="invisible"
-        app:srcCompat="@color/colorAccent" />
+        app:srcCompat="@color/colorLightGray" />
 
     <android.support.design.widget.FloatingActionButton
         android:id="@+id/fab_take_photo"
@@ -30,10 +30,9 @@
         app:backgroundTint="@color/colorPrimary"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.33"
         app:layout_constraintStart_toStartOf="parent" />
 
-    <android.support.design.widget.FloatingActionButton
+    <!-- android.support.design.widget.FloatingActionButton
         android:id="@+id/fab_stack"
         android:layout_width="56dp"
         android:layout_height="56dp"
@@ -46,7 +45,7 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.67"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintStart_toStartOf="parent" / -->
 
     <!-- Sliders -->
 
