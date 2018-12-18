@@ -769,7 +769,8 @@ class MainActivity : AppCompatActivity() {
 
         // Process stacked image in native code
 
-        processImageBuffer ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f )
+        val galleryPath: String = galleryFolder.absolutePath
+        processImageBuffer ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, galleryPath )
         val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
         image_view_stack.setImageBitmap(stackedBitmap)
 
@@ -830,7 +831,7 @@ class MainActivity : AppCompatActivity() {
      */
     private external fun computeOrbitParams(a: Float, e: Float): String
 
-    private external fun processImageBuffer (data:IntArray, width:Int, height:Int, widthAngle:Float, heightAngle:Float ): Int
+    private external fun processImageBuffer (data:IntArray, width:Int, height:Int, widthAngle:Float, heightAngle:Float, logDir:String ): Int
     //endregion
 
 }

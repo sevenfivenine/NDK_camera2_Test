@@ -20,6 +20,7 @@
 #define REF_MAG_LIMIT	4.5				// visual magnitude limit for reference objecrs.
 
 int AddReferenceSolarSystemObjects ( A3Image *pImage );
+int CompareSkyReferenceMagnitudes ( const void *p1, const void *p2 );
 
 extern "C" JNIEXPORT jstring
 
@@ -64,10 +65,15 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
         jint width,
         jint height,
         jfloat widthAngle,
-        jfloat heightAngle)
+        jfloat heightAngle,
+        jstring logDir)
 {
     jsize len = env->GetArrayLength ( pixelArray );
     uint32_t *pixels = (uint32_t *) env->GetIntArrayElements ( pixelArray, 0 );
+    const char *logDirString = env->GetStringUTFChars ( logDir, 0 );
+    char logPath[256] = { 0 };
+
+#if 0
 
     double sumR = 0.0, sumG = 0.0, sumB = 0.0, sumA = 0;
     uint8_t r = 0, g = 0, b = 0 , a = 0;
@@ -88,6 +94,13 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
     }
 
     LOG_INFO ( "sumR = %.0f, sumG = %0.f, sumB = %.0f, sumA = %.0f", sumR, sumG, sumB, sumA );
+
+#endif
+
+    strncpy ( logPath, logDirString, sizeof ( logPath ) );
+    strncat ( logPath, "/AstrometryLog.txt", sizeof ( logPath ) );
+
+    env->ReleaseStringUTFChars ( logDir, logDirString );
 
     // Initialize sky image struct with data from the camera
 
@@ -148,6 +161,32 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processImageBuffer(
     }
 
     int nRefs = AddReferenceSolarSystemObjects ( &skyImage );
+    qsort ( skyImage.pReferences, skyImage.nReferences, sizeof ( A3Reference ), CompareSkyReferenceMagnitudes );
+    LOG_INFO ( "Total %d references.\n", skyImage.nReferences );
+
+    // Now attempt to identify objects in the image.  If we only attempt to identify the 6 brightest
+    // objects, we'll get an answer much faster, and this usually works.  But we may fail to correctly
+    // identify the objects if there are many bright "false stars" present.  So for now, we do an
+    // exhaustive attempt to identify objects using all possible triplets.
+
+    A3MatchParams	params = { 0 };
+
+    params.width = width;
+    params.height = height;
+    params.tolerance = starRadius;
+    params.timeout = TIMEOUT;
+
+    int success = A3ImageIdentifyObjects ( &skyImage, &params );
+    if ( ! success )
+    {
+        LOG_INFO ( "Failed to identify enough objects to determine field of view.\n" );
+        A3ImagePrintObjects ( &skyImage, stdout );
+        return ( 0 );
+    }
+
+    LOG_INFO ( "%d objects matched, mean error is %.2f°.\n",
+               params.nObjsMatched,
+               RAD_TO_DEG ( params.meanError ) );
 
     // Release memory for sky image data
 
@@ -220,4 +259,19 @@ int AddReferenceSolarSystemObjects ( A3Image *pImage )
         A3ImageAddReference ( pImage, &reference, MIN_REF_ALT );
 
     return ( pImage->nReferences );
+}
+
+// Comparison function for sorting reference stars by magnitude
+
+int CompareSkyReferenceMagnitudes ( const void *p1, const void *p2 )
+{
+    A3Reference *pRef1 = (A3Reference *) p1;
+    A3Reference *pRef2 = (A3Reference *) p2;
+
+    if ( pRef1->mag < pRef2->mag )
+        return -1;
+    else if ( pRef1->mag > pRef2->mag )
+        return 1;
+    else
+        return 0;
 }
