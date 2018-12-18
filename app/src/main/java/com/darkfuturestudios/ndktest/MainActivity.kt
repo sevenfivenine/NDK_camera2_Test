@@ -759,6 +759,9 @@ class MainActivity : AppCompatActivity() {
             bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
             Log.d(TAG, "$bitmap")
 
+            stackImageBuffers( bitmapPixels, width, height, stackedImage )
+
+/*
             // Decode packed ARGB ints
             var color: Int
             var A: Int
@@ -811,13 +814,14 @@ class MainActivity : AppCompatActivity() {
             } else if (cameraController is CameraController2) {
 
             }
-
+*/
             i++
         }
 
         // Process stacked image in native code
 
-        processImageBuffer ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f )
+        val galleryPath: String = galleryFolder.absolutePath
+        processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, galleryPath )
         val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
         image_view_stack.setImageBitmap(stackedBitmap)
 
@@ -878,7 +882,9 @@ class MainActivity : AppCompatActivity() {
      */
     private external fun computeOrbitParams(a: Float, e: Float): String
 
-    private external fun processImageBuffer (data:IntArray, width:Int, height:Int, widthAngle:Float, heightAngle:Float ): Int
-    //endregion
+    private external fun processStackedImage (data:IntArray, width:Int, height:Int, widthAngle:Float, heightAngle:Float, logDir:String ): Int
 
+    private external fun stackImageBuffers (data:IntArray, width:Int, height:Int, stackedData:IntArray ): Int
+
+    //endregion
 }
