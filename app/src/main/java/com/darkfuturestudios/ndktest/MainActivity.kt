@@ -70,8 +70,9 @@ class MainActivity : AppCompatActivity() {
     private var hardwareSupportsCamera2: Boolean = true
 
     // Camera settings
-    private var exposure: Long = 1000000L // camera2
+    private var exposure: Long = 1000000L // camera2; Exposure time (Nanoseconds)
     private var exposureCompensation: Double = 0.0 // camera
+    private var exposureStackTime: Long = 0L // How long to stack exposure (Nanoseconds)
     private var focus: Float = 0.0f
     private var gain: Int = 0 // camera2
     private var gainString: String = "" // camera
@@ -471,6 +472,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 // camera2
                 else if (cameraController is CameraController2) {
+                    /*
+
+                    Not true! See below!
+
                     // If max exposure time of the camera is greater than 10 seconds
                     // We do not ever need to use stacking
                     if (maxExposureTime >= 10000000000) {
@@ -483,9 +488,49 @@ class MainActivity : AppCompatActivity() {
                     // Stacking is necessary past max exposure time
                     else {
                         exposure = (100000 * exp(0.069 * progress)).toLong()
+                    }*/
+
+                    // We always need stacking because, at least on some devices, showing the
+                    // preview at 10 seconds will cause a camera firmware crash
+                    // Since we want to support a variety of Android devices, it is in our best
+                    // interest to go the safe route and stack
+
+                    // The point where the slider switches from changing exposure time to stacking
+                    val minStackingProgress = 66.7
+
+                    // TODO Add a check, in the off-chance that a camera2 device is unable to support a 1/12 second exposure time
+                    val previewMaxExposureTime = (1.0/12) * 1000000000L
+
+                    val maxStackTime = 10L * 1000000000L // 10 seconds
+
+                    /**
+                     * Change exposure time
+                     * This portion of the slider goes from minExposureTime to
+                     * previewMaxExposureTime (1/12 second is a good value, used on OpenCamera)
+                     */
+                    if (progress < minStackingProgress) {
+                        // Progress through the exposure time portion of the seek bar
+                        // 0 to 1
+                        val exposureTimeProgress = progress/minStackingProgress
+                        exposure = (minExposureTime * exp(ln(previewMaxExposureTime/minExposureTime)
+                                * exposureTimeProgress)).toLong()
+
+                        text_view_exposure_value.text = "%d ms".format(exposure/1000000)
                     }
 
-                    text_view_exposure_value.text = "%d ms".format(exposure/1000000)
+                    /**
+                     * Stack exposure
+                     */
+                    else {
+                        // Progress through the stacking portion of the seek bar
+                        // 0 to 1
+                        val stackProgress = (progress - minStackingProgress)/(100.0f - minStackingProgress)
+
+                        // Linear
+                        exposureStackTime = (previewMaxExposureTime + (stackProgress * maxStackTime - previewMaxExposureTime)).toLong()
+
+                        text_view_exposure_value.text = "%.2f ms".format(exposureStackTime/1000000.0)
+                    }
                 }
             }
 
