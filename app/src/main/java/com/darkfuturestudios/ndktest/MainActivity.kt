@@ -166,12 +166,22 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Switch $key is now $isChecked")
                 if (isChecked) {
                     autoModes!![key] = true
+
+                    // Auto exposure and gain must have the same state
+                    if (key == SEEK_BAR_EXPOSURE) autoModes!![SEEK_BAR_GAIN] = true
+                    else if (key == SEEK_BAR_GAIN) autoModes!![SEEK_BAR_EXPOSURE] = true
+
                     calculateCameraSetting(seekBars[key]!!.progress, key)
 
                     // Disable manual
                     seekBars[key]!!.isEnabled = false
                 } else {
                     autoModes!![key] = false
+
+                    // Auto exposure and gain must have the same state
+                    if (key == SEEK_BAR_EXPOSURE) autoModes!![SEEK_BAR_GAIN] = false
+                    else if (key == SEEK_BAR_GAIN) autoModes!![SEEK_BAR_EXPOSURE] = false
+
                     calculateCameraSetting(seekBars[key]!!.progress, key)
 
                     // Enable manual
@@ -649,7 +659,7 @@ class MainActivity : AppCompatActivity() {
             SEEK_BAR_FOCUS -> {
                 // Auto focus
                 if (autoModes!![SEEK_BAR_FOCUS] == true) {
-
+                    text_view_focus_value.text = "Auto"
                 }
 
                 // Manual focus
@@ -860,18 +870,37 @@ class MainActivity : AppCompatActivity() {
             if (cameraController is CameraController1) {
                 Log.d(TAG, "Using camera")
 
-                // Auto exposure (just set exposure compensation to 0 EV)
-                if (autoModes!![SEEK_BAR_EXPOSURE] == true) {
+                // Auto exposure/gain (just set exposure compensation to 0 EV)
+                if (autoModes!![SEEK_BAR_EXPOSURE] == true || autoModes!![SEEK_BAR_GAIN] == true) {
                     cameraController?.exposureCompensation = 0
+                    cameraController?.setISO("auto")
+
+                    // These are coupled, so make sure both are checked
+                    autoSwitches[SEEK_BAR_EXPOSURE]!!.isChecked = true
+                    autoSwitches[SEEK_BAR_GAIN]!!.isChecked = true
                 }
 
                 // Manual exposure
                 else {
                     cameraController?.exposureCompensation = exposureCompensation.toInt()
+                    cameraController?.setISO(gainString)
+
+                    // These are coupled, so make sure they are both unchecked
+                    autoSwitches[SEEK_BAR_EXPOSURE]!!.isChecked = false
+                    autoSwitches[SEEK_BAR_GAIN]!!.isChecked = false
                 }
 
-                cameraController?.setISO(gainString)
+                // Auto focus
+                if (autoModes!![SEEK_BAR_FOCUS] == true) {
+
+                }
+
+                // Manual focus
+                else {
+
+                }
             }
+
             // camera2
             else if (cameraController is CameraController2) {
                 Log.d(TAG, "Using camera2")
@@ -879,15 +908,17 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Max exposure time: ${cameraController?.cameraFeatures?.max_exposure_time}")
                 Log.d(TAG, "Current exposure time: ${cameraController?.exposureTime}")
 
-                // Auto exposure
-                if (autoModes!![SEEK_BAR_EXPOSURE] == true) {
+                // Auto exposure/gain
+                if (autoModes!![SEEK_BAR_EXPOSURE] == true || autoModes!![SEEK_BAR_GAIN] == true) {
                     // Use this to turn on auto exposure and auto ISO
                     cameraController?.setManualISO(false, 0)
-                    // Also toggle the gain switch since these are coupled
+
+                    // These are coupled, so make sure both are checked
+                    autoSwitches[SEEK_BAR_EXPOSURE]!!.isChecked = true
                     autoSwitches[SEEK_BAR_GAIN]!!.isChecked = true
                 }
 
-                // Manual exposure
+                // Manual exposure/gain
                 else {
                     /**
                      * CameraController will not allow auto exposure to turn off unless we also set a
@@ -895,13 +926,22 @@ class MainActivity : AppCompatActivity() {
                      */
                     cameraController?.setManualISO(true, gain)
                     cameraController?.exposureTime = exposure
-                    cameraController?.focusDistance = focus
-                    cameraController?.focusValue = "focus_mode_manual2"
-                    // Also toggle the gain switch since these are coupled
+
+                    // These are coupled, so make sure they are both unchecked
+                    autoSwitches[SEEK_BAR_EXPOSURE]!!.isChecked = false
                     autoSwitches[SEEK_BAR_GAIN]!!.isChecked = false
                 }
 
+                // Auto focus
+                if (autoModes!![SEEK_BAR_FOCUS] == true) {
+                    cameraController?.focusValue = "focus_mode_auto"
+                }
 
+                // Manual focus
+                else {
+                    cameraController?.focusDistance = focus
+                    cameraController?.focusValue = "focus_mode_manual2"
+                }
             }
 
             // Calculate FOV
@@ -921,7 +961,7 @@ class MainActivity : AppCompatActivity() {
      * exposure time (this is especially useful in situations where we do not have access to the
      * camera's current exposure time)
      */
-    fun stackExposure() {
+    private fun stackExposure() {
         fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
         Log.d(TAG, "stackExposure()")
         //val startTime = System.currentTimeMillis()
