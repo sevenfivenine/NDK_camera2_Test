@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">NDK Test</string>
+    <string name="action_settings_visibility">Show/Hide Settings</string>
 </resources>

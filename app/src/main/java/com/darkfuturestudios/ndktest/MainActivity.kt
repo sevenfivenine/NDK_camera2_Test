@@ -13,6 +13,8 @@ import android.support.v4.app.ActivityCompat
 import android.support.v7.app.AppCompatActivity
 import android.util.Log
 import android.util.Range
+import android.view.Menu
+import android.view.MenuItem
 import android.view.TextureView
 import android.view.View
 import android.widget.SeekBar
@@ -72,15 +74,12 @@ class MainActivity : AppCompatActivity() {
     private var hardwareSupportsCamera2: Boolean = true
 
     // Camera settings
-    private var autoExposure: Boolean = false
+    private var settingsVisible: Boolean = true // Toggles the UI (sliders, switches, labels)
     private var exposure: Long = 1000000L // camera2; Exposure time (Nanoseconds)
     private var exposureCompensation: Double = 0.0 // camera
-    private var autoFocus: Boolean = false
     private var focus: Float = 0.0f
-    private var autoGain: Boolean = false
     private var gain: Int = 0 // camera2
     private var gainString: String = "" // camera
-    private var autoResolution: Boolean = false
     private var resolution: CameraController.Size? = null
     private var autoModes: HashMap<Int, Boolean>? = null
     private var fovX: Float? = 0.0f  // camera angular fieid of view width, in degrees
@@ -122,6 +121,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
+        setSupportActionBar(findViewById(R.id.toolbar_camera))
 
         // Find views
         textureView = findViewById(R.id.texture_view)
@@ -232,6 +232,21 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menuInflater.inflate(R.menu.menu_camera, menu)
+        return super.onCreateOptionsMenu(menu)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem?): Boolean {
+        if (item?.itemId == R.id.action_settings_visibility) {
+            settingsVisible = !settingsVisible
+
+            toggleUI(if (settingsVisible) View.VISIBLE else View.INVISIBLE)
+        }
+
+        return super.onOptionsItemSelected(item)
+    }
+
     override fun onResume() {
         super.onResume()
         if (textureView.isAvailable) {
@@ -251,6 +266,30 @@ class MainActivity : AppCompatActivity() {
     //endregion
 
     //region camera
+
+    /**
+     * Toggles the UI (sliders, switches, labels for changing camera settings)
+     */
+    private fun toggleUI(visibility: Int) {
+        for ((key, seekBar) in seekBars) {
+            seekBar.visibility = visibility
+        }
+
+        for ((key, autoSwitch) in autoSwitches) {
+            autoSwitch.visibility = visibility
+        }
+
+        text_view_exposure.visibility = visibility
+        text_view_exposure_value.visibility = visibility
+        text_view_focus.visibility = visibility
+        text_view_focus_value.visibility = visibility
+        text_view_gain.visibility = visibility
+        text_view_gain_value.visibility = visibility
+        text_view_res.visibility = visibility
+        text_view_res_value.visibility = visibility
+        text_view_FOV.visibility = visibility
+        switch_hide_preview.visibility = visibility
+    }
 
     /**
      * Sets up camera, creates CameraController, starts preview, then calculates initial camera
