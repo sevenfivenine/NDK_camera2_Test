@@ -31,7 +31,7 @@ public class CameraController1 extends CameraController {
 	private String iso_key;
 	private boolean frontscreen_flash;
 	private final ErrorCallback camera_error_cb;
-	private boolean sounds_enabled = true;
+	private boolean sounds_enabled = false;
 
 	private int n_burst; // number of expected burst images in this capture
 	private final List<byte []> pending_burst_images = new ArrayList<>(); // burst images that have been captured so far, but not yet sent to the application

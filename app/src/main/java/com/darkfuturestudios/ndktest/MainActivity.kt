@@ -16,6 +16,7 @@ import android.util.Range
 import android.view.TextureView
 import android.view.View
 import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.Toast
 import com.darkfuturestudios.ndktest.CameraController.*
 import kotlinx.android.synthetic.main.activity_camera.*
@@ -25,6 +26,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.collections.HashMap
 import kotlin.math.*
 
 class MainActivity : AppCompatActivity() {
@@ -60,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var textureView: TextureView
     private lateinit var fabTakePhoto: View
     private lateinit var seekBars: HashMap<Int, SeekBar>
+    private lateinit var autoSwitches: HashMap<Int, Switch>
     private lateinit var surfaceTextureListener: TextureView.SurfaceTextureListener
     private lateinit var cameraManager: CameraManager
     private lateinit var cameraId: String
@@ -69,8 +72,19 @@ class MainActivity : AppCompatActivity() {
     private var hardwareSupportsCamera2: Boolean = true
 
     // Camera settings
+    private var autoExposure: Boolean = false
     private var exposure: Long = 1000000L // camera2; Exposure time (Nanoseconds)
     private var exposureCompensation: Double = 0.0 // camera
+    private var autoFocus: Boolean = false
+    private var focus: Float = 0.0f
+    private var autoGain: Boolean = false
+    private var gain: Int = 0 // camera2
+    private var gainString: String = "" // camera
+    private var autoResolution: Boolean = false
+    private var resolution: CameraController.Size? = null
+    private var autoModes: HashMap<Int, Boolean>? = null
+    private var fovX: Float? = 0.0f  // camera angular fieid of view width, in degrees
+    private var fovY: Float? = 0.0f  // camera angular field of view height, in degrees
 
     // Stacking
 
@@ -101,13 +115,6 @@ class MainActivity : AppCompatActivity() {
      */
     private var stackMode: Boolean = false
 
-    private var focus: Float = 0.0f
-    private var gain: Int = 0 // camera2
-    private var gainString: String = "" // camera
-    private var resolution: CameraController.Size? = null
-    private var fovX: Float? = 0.0f  // camera angular fieid of view width, in degrees
-    private var fovY: Float? = 0.0f  // camera angular field of view height, in degrees
-
     //endregion
 
     //region lifecycle
@@ -126,6 +133,18 @@ class MainActivity : AppCompatActivity() {
                 SEEK_BAR_GAIN to seek_bar_gain,
                 SEEK_BAR_RES to seek_bar_res)
 
+        // Create auto switch hash map
+        autoSwitches = hashMapOf(SEEK_BAR_EXPOSURE to switch_auto_exposure,
+                SEEK_BAR_FOCUS to switch_auto_focus,
+                SEEK_BAR_GAIN to switch_auto_gain,
+                SEEK_BAR_RES to switch_auto_resolution)
+
+        // Create auto modes hash map
+        autoModes = hashMapOf(SEEK_BAR_EXPOSURE to false,
+                SEEK_BAR_FOCUS to false,
+                SEEK_BAR_GAIN to false,
+                SEEK_BAR_RES to false)
+
         for ((key, seekBar) in seekBars) {
             // Set listener
             seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -139,6 +158,26 @@ class MainActivity : AppCompatActivity() {
                 override fun onStopTrackingTouch(pSeekBar: SeekBar) {
                 }
             })
+        }
+
+        for ((key, autoSwitch) in autoSwitches) {
+            // Set listener
+            autoSwitch.setOnCheckedChangeListener { compoundButton, isChecked ->
+                Log.d(TAG, "Switch $key is now $isChecked")
+                if (isChecked) {
+                    autoModes!![key] = true
+                    calculateCameraSetting(seekBars[key]!!.progress, key)
+
+                    // Disable manual
+                    seekBars[key]!!.isEnabled = false
+                } else {
+                    autoModes!![key] = false
+                    calculateCameraSetting(seekBars[key]!!.progress, key)
+
+                    // Enable manual
+                    seekBars[key]!!.isEnabled = true
+                }
+            }
         }
 
         fabTakePhoto.setOnClickListener {
@@ -517,138 +556,165 @@ class MainActivity : AppCompatActivity() {
         // Calculate camera setting
         when (key) {
             SEEK_BAR_EXPOSURE -> {
-                val minExposureTime = cameraController?.cameraFeatures?.min_exposure_time ?: 0
-                val maxExposureTime = cameraController?.cameraFeatures?.max_exposure_time ?: 0
-
-                // camera
-                if (cameraController is CameraController1) {
-                    val minExp = cameraController?.cameraFeatures?.min_exposure ?: 0
-                    val maxExp = cameraController?.cameraFeatures?.max_exposure ?: 0
-                    exposureCompensation = minExp + progress / 100.0 * (maxExp - minExp)
-                    text_view_exposure_value.text = "%.2f".format(exposureCompensation)
+                // Auto exposure
+                if (autoModes!![SEEK_BAR_EXPOSURE] == true) {
+                    text_view_exposure_value.text = "Auto"
                 }
-                // camera2
-                else if (cameraController is CameraController2) {
-                    /*
 
-                    Not true! See below!
+                // Manual exposure
+                else {
+                    val minExposureTime = cameraController?.cameraFeatures?.min_exposure_time ?: 0
+                    val maxExposureTime = cameraController?.cameraFeatures?.max_exposure_time ?: 0
 
-                    // If max exposure time of the camera is greater than 10 seconds
-                    // We do not ever need to use stacking
-                    if (maxExposureTime >= 10000000000) {
-                        // linear: exposure = (minExposureTime + (progress / 100.0f) * (10000000000 - minExposureTime)).toLong()
-                        // exponential:
-                        exposure = (minExposureTime * exp(0.01*ln(10000000000.0/minExposureTime) * progress)).toLong()
+                    // camera
+                    if (cameraController is CameraController1) {
+                        val minExp = cameraController?.cameraFeatures?.min_exposure ?: 0
+                        val maxExp = cameraController?.cameraFeatures?.max_exposure ?: 0
+                        exposureCompensation = minExp + progress / 100.0 * (maxExp - minExp)
+                        text_view_exposure_value.text = "%.2f".format(exposureCompensation)
                     }
+                    // camera2
+                    else if (cameraController is CameraController2) {
+                        /*
 
-                    // If max exposure time of the camera is less than 10 seconds
-                    // Stacking is necessary past max exposure time
-                    else {
-                        exposure = (100000 * exp(0.069 * progress)).toLong()
-                    }*/
+                        Not true! See below!
 
-                    // We always need stacking because, at least on some devices, showing the
-                    // preview at 10 seconds will cause a camera firmware crash
-                    // Since we want to support a variety of Android devices, it is in our best
-                    // interest to go the safe route and stack
+                        // If max exposure time of the camera is greater than 10 seconds
+                        // We do not ever need to use stacking
+                        if (maxExposureTime >= 10000000000) {
+                            // linear: exposure = (minExposureTime + (progress / 100.0f) * (10000000000 - minExposureTime)).toLong()
+                            // exponential:
+                            exposure = (minExposureTime * exp(0.01*ln(10000000000.0/minExposureTime) * progress)).toLong()
+                        }
 
-                    // The point where the slider switches from changing exposure time to stacking
-                    val minStackingProgress = 50.1
+                        // If max exposure time of the camera is less than 10 seconds
+                        // Stacking is necessary past max exposure time
+                        else {
+                            exposure = (100000 * exp(0.069 * progress)).toLong()
+                        }*/
 
-                    // TODO Add a check, in the off-chance that a camera2 device is unable to support a 1/12 second exposure time
-                    val previewMaxExposureTime = (1.0/12) * 1000000000L
+                        // We always need stacking because, at least on some devices, showing the
+                        // preview at 10 seconds will cause a camera firmware crash
+                        // Since we want to support a variety of Android devices, it is in our best
+                        // interest to go the safe route and stack
 
-                    val maxStackTime = 10L * 1000000000L // 10 seconds
+                        // The point where the slider switches from changing exposure time to stacking
+                        val minStackingProgress = 50.1
 
-                    /**
-                     * Change exposure time
-                     * This portion of the slider goes from minExposureTime to
-                     * previewMaxExposureTime (1/12 second is a good value, used on OpenCamera)
-                     */
-                    if (progress < minStackingProgress) {
-                        stackMode = false
-                        (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_camera)
-                        // Not stacking
-                        stackDuration = 0L
-                        // Progress through the exposure time portion of the seek bar
-                        // 0 to 1
-                        val exposureTimeProgress = progress/minStackingProgress
-                        exposure = (minExposureTime * exp(ln(previewMaxExposureTime/minExposureTime)
-                                * exposureTimeProgress)).toLong()
+                        // TODO Add a check, in the off-chance that a camera2 device is unable to support a 1/12 second exposure time
+                        val previewMaxExposureTime = (1.0/12) * 1000000000L
 
-                        text_view_exposure_value.text = "%d ms".format(exposure/1000000)
-                    }
+                        val maxStackTime = 10L * 1000000000L // 10 seconds
 
-                    /**
-                     * Stack exposure
-                     */
-                    else {
-                        stackMode = true
-                        (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_stack)
-                        // Set the exposure time (for each capture)
-                        exposure = stackingExposureTime
-                        // Progress through the stacking portion of the seek bar
-                        // 0 to 1
-                        val stackProgress = (progress - minStackingProgress)/(100.0f - minStackingProgress)
+                        /**
+                         * Change exposure time
+                         * This portion of the slider goes from minExposureTime to
+                         * previewMaxExposureTime (1/12 second is a good value, used on OpenCamera)
+                         */
+                        if (progress < minStackingProgress) {
+                            stackMode = false
+                            (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_camera)
+                            // Not stacking
+                            stackDuration = 0L
+                            // Progress through the exposure time portion of the seek bar
+                            // 0 to 1
+                            val exposureTimeProgress = progress/minStackingProgress
+                            exposure = (minExposureTime * exp(ln(previewMaxExposureTime/minExposureTime)
+                                    * exposureTimeProgress)).toLong()
 
-                        // Linear
-                        stackDuration = (previewMaxExposureTime + (stackProgress * maxStackTime - previewMaxExposureTime)).toLong()
+                            text_view_exposure_value.text = "%d ms".format(exposure/1000000)
+                        }
 
-                        text_view_exposure_value.text = "%.2f ms".format(stackDuration/1000000.0)
+                        /**
+                         * Stack exposure
+                         */
+                        else {
+                            stackMode = true
+                            (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_stack)
+                            // Set the exposure time (for each capture)
+                            exposure = stackingExposureTime
+                            // Progress through the stacking portion of the seek bar
+                            // 0 to 1
+                            val stackProgress = (progress - minStackingProgress)/(100.0f - minStackingProgress)
+
+                            // Linear
+                            stackDuration = (previewMaxExposureTime + (stackProgress * maxStackTime - previewMaxExposureTime)).toLong()
+
+                            text_view_exposure_value.text = "%.2f ms".format(stackDuration/1000000.0)
+                        }
                     }
                 }
             }
 
             SEEK_BAR_FOCUS -> {
-                // camera
-                if (cameraController is CameraController1) {
-                    // Manual focus is not supported
-                    // Set focus to infinity for slider all the way to right
+                // Auto focus
+                if (autoModes!![SEEK_BAR_FOCUS] == true) {
 
-                    cameraController?.clearFocusAndMetering()
-
-                    if (progress == 100) {
-                        cameraController?.focusValue = "focus_mode_infinity"
-                    }
-                    // Otherwise set it to auto focus
-                    else {
-                        cameraController?.focusValue = "focus_mode_locked"
-                    }
-
-                    val params = (cameraController as CameraController1).parameters
-                    val output = FloatArray(3)
-                    params.getFocusDistances(output)
-
-                    text_view_focus_value.text = "${output[Camera.Parameters.FOCUS_DISTANCE_OPTIMAL_INDEX]}"
                 }
-                // camera2
-                else if (cameraController is CameraController2) {
-                    val minFocusDist: Float = cameraController?.cameraFeatures?.minimum_focus_distance ?: 0.0f
-                    // max focus distance in inf. (inputted as 0.0f)
-                    // progress = 0   -> focus = minFocusDist
-                    // progress = 100 -> focus = 0.0f
-                    focus =  minFocusDist - ((progress / 100.0f) * minFocusDist)
-                    text_view_focus_value.text = "$focus"
+
+                // Manual focus
+                else {
+                    // camera
+                    if (cameraController is CameraController1) {
+                        // Manual focus is not supported
+                        // Set focus to infinity for slider all the way to right
+
+                        cameraController?.clearFocusAndMetering()
+
+                        if (progress == 100) {
+                            cameraController?.focusValue = "focus_mode_infinity"
+                        }
+                        // Otherwise set it to auto focus
+                        else {
+                            cameraController?.focusValue = "focus_mode_locked"
+                        }
+
+                        val params = (cameraController as CameraController1).parameters
+                        val output = FloatArray(3)
+                        params.getFocusDistances(output)
+
+                        text_view_focus_value.text = "${output[Camera.Parameters.FOCUS_DISTANCE_OPTIMAL_INDEX]}"
+                    }
+                    // camera2
+                    else if (cameraController is CameraController2) {
+                        val minFocusDist: Float = cameraController?.cameraFeatures?.minimum_focus_distance ?: 0.0f
+                        // max focus distance in inf. (inputted as 0.0f)
+                        // progress = 0   -> focus = minFocusDist
+                        // progress = 100 -> focus = 0.0f
+                        focus =  minFocusDist - ((progress / 100.0f) * minFocusDist)
+                        text_view_focus_value.text = "$focus"
+                    }
                 }
             }
 
             SEEK_BAR_GAIN -> {
-                // camera
-                if (cameraController is CameraController1) {
-                    // First we need to retrieve supported values
-                    // TODO optimize?
-                    val supportedGainValuesStr = cameraController?.setISO("auto")
-                    val supportedGainValues: MutableList<Int> = mutableListOf()
-                    var prefixPresent = false
+                // Auto gain
+                if (autoModes!![SEEK_BAR_GAIN] == true) {
+                    text_view_gain_value.text = "Auto"
+                }
 
-                    // Format seems to be either ISO### or ###. So remove ISO and check if it converts to an int
-                    for (gainVal: String in supportedGainValuesStr?.values!!) {
-                        val formattedGainVal: String
-                        val gainValInt: Int
+                // Manual gain
+                else {
+                    // camera
+                    if (cameraController is CameraController1) {
+                        // First we need to retrieve supported values
+                        // TODO optimize?
+                        val supportedGainValuesStr = cameraController?.setISO("auto")
+                        val supportedGainValues: MutableList<Int> = mutableListOf()
+                        var prefixPresent = false
 
-                        if (gainVal.startsWith("ISO")) {
-                            formattedGainVal = gainVal.substringAfter("ISO")
-                            prefixPresent = true
+                        // Format seems to be either ISO### or ###. So remove ISO and check if it converts to an int
+                        for (gainVal: String in supportedGainValuesStr?.values!!) {
+                            val formattedGainVal: String
+                            val gainValInt: Int
+
+                            if (gainVal.startsWith("ISO")) {
+                                formattedGainVal = gainVal.substringAfter("ISO")
+                                prefixPresent = true
+                            } else {
+                                formattedGainVal = gainVal
+                                prefixPresent = false
+                            }
 
                             try {
                                 gainValInt = formattedGainVal.toInt()
@@ -659,86 +725,131 @@ class MainActivity : AppCompatActivity() {
                                 Log.d(TAG, "Non numbered gain of $formattedGainVal")
                             }
                         }
-                    }
 
-                    // If the camera is unable to change ISO, print error
-                    if (supportedGainValues.size < 2) {
-                        Log.e(TAG, "Error: Camera does not support changing ISO value")
-                        return
-                    } else {
-                        val minGain = supportedGainValues.min() ?: return
-                        val maxGain = supportedGainValues.max() ?: return
-                        val suggestedGainValue = (minGain + (progress / 100.0) * (maxGain - minGain)).toInt()
-                        var closestGainValue = supportedGainValues[0]
-
-                        // Find closest value
-                        var minDiff = Int.MAX_VALUE
-                        for (gainVal: Int in supportedGainValues) {
-                            if (abs(suggestedGainValue - gainVal) < minDiff) {
-                                minDiff = abs(suggestedGainValue - gainVal)
-                                closestGainValue = gainVal
-                            }
-                        }
-
-                        gainString = if (prefixPresent) {
-                            "ISO$closestGainValue"
+                        // If the camera is unable to change ISO, print error
+                        if (supportedGainValues.size < 2) {
+                            Log.e(TAG, "Error: Camera does not support changing ISO value")
+                            return
                         } else {
-                            "$closestGainValue"
-                        }
+                            val minGain = supportedGainValues.min() ?: return
+                            val maxGain = supportedGainValues.max() ?: return
+                            val suggestedGainValue = (minGain + (progress / 100.0) * (maxGain - minGain)).toInt()
+                            var closestGainValue = supportedGainValues[0]
 
-                        text_view_gain_value.text = gainString
+                            // Find closest value
+                            var minDiff = Int.MAX_VALUE
+                            for (gainVal: Int in supportedGainValues) {
+                                if (abs(suggestedGainValue - gainVal) < minDiff) {
+                                    minDiff = abs(suggestedGainValue - gainVal)
+                                    closestGainValue = gainVal
+                                }
+                            }
+
+                            gainString = if (prefixPresent) {
+                                "ISO$closestGainValue"
+                            } else {
+                                "$closestGainValue"
+                            }
+
+                            text_view_gain_value.text = gainString
+                        }
                     }
-                }
-                // camera2
-                else if (cameraController is CameraController2) {
-                    val rangeGain: Range<Int> = cameraManager.getCameraCharacteristics(cameraId)
-                            .get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
-                    val minGain = rangeGain.lower
-                    val maxGain = rangeGain.upper
-                    gain = (minGain + (progress / 100.0) * (maxGain - minGain)).toInt()
-                    text_view_gain_value.text = "$gain"
+                    // camera2
+                    else if (cameraController is CameraController2) {
+                        val rangeGain: Range<Int> = cameraManager.getCameraCharacteristics(cameraId)
+                                .get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+                        val minGain = rangeGain.lower
+                        val maxGain = rangeGain.upper
+                        gain = (minGain + (progress / 100.0) * (maxGain - minGain)).toInt()
+                        text_view_gain_value.text = "$gain"
+                    }
                 }
             }
 
             SEEK_BAR_RES -> {
-                val pictureSizes = mutableListOf<CameraController.Size>()
-                val previewSizes = cameraController?.cameraFeatures?.preview_sizes ?: return
+                // Auto resolution
+                if (autoModes!![SEEK_BAR_RES] == true) {
+                    // Use largest possible resolution (0th element in array)
+                    val pictureSizes = mutableListOf<CameraController.Size>()
+                    val previewSizes = cameraController?.cameraFeatures?.preview_sizes ?: return
 
-                for (pictureSize in cameraController?.cameraFeatures?.picture_sizes ?: return) {
-                    // Only use 16:9 resolutions (or close) that also have valid preview sizes
-                    if (abs(pictureSize.width.toDouble() / pictureSize.height.toDouble() - 16.0 / 9.0) <= 0.2
-                            && previewSizes.contains(pictureSize)) {
-                        Log.d(TAG, "Picture size is ~16:9 $pictureSize")
-                        pictureSizes.add(pictureSize)
+                    for (pictureSize in cameraController?.cameraFeatures?.picture_sizes ?: return) {
+                        // Only use 16:9 resolutions (or close) that also have valid preview sizes
+                        if (abs(pictureSize.width.toDouble() / pictureSize.height.toDouble() - 16.0 / 9.0) <= 0.2
+                                && previewSizes.contains(pictureSize)) {
+                            Log.d(TAG, "Picture size is ~16:9 $pictureSize")
+                            pictureSizes.add(pictureSize)
+                        }
                     }
-                }
 
-                // Choose the closest picture size
-                // PictureSizes gets filled largest to smallest, so reverse here for slider
-                resolution = pictureSizes[round((1.0 - progress / 100.0) * (pictureSizes.size - 1)).toInt()]
+                    resolution = pictureSizes[0]
 
-                try {
-                    // camera
-                    if (cameraController is CameraController1) {
-                        cameraController?.stopPreview()
-                        cameraController?.setPictureSize(resolution!!.width, resolution!!.height)
-                        cameraController?.setPreviewSize(resolution!!.width, resolution!!.height)
-                        cameraController?.startPreview()
-                    }
-                    // camera2
-                    else if (cameraController is CameraController2) {
-                        cameraController?.stopPreview()
-
-                        if ((cameraController as CameraController2).captureSession == null) {
+                    try {
+                        // camera
+                        if (cameraController is CameraController1) {
+                            cameraController?.stopPreview()
                             cameraController?.setPictureSize(resolution!!.width, resolution!!.height)
                             cameraController?.setPreviewSize(resolution!!.width, resolution!!.height)
                             cameraController?.startPreview()
                         }
+                        // camera2
+                        else if (cameraController is CameraController2) {
+                            cameraController?.stopPreview()
+
+                            if ((cameraController as CameraController2).captureSession == null) {
+                                cameraController?.setPictureSize(resolution!!.width, resolution!!.height)
+                                cameraController?.setPreviewSize(resolution!!.width, resolution!!.height)
+                                cameraController?.startPreview()
+                            }
+                        }
+
+                        text_view_res_value.text = "$resolution"
+                    } catch (e: CameraAccessException) {
+                        e.printStackTrace()
+                    }
+                }
+
+                // Manual resolution
+                else {
+                    val pictureSizes = mutableListOf<CameraController.Size>()
+                    val previewSizes = cameraController?.cameraFeatures?.preview_sizes ?: return
+
+                    for (pictureSize in cameraController?.cameraFeatures?.picture_sizes ?: return) {
+                        // Only use 16:9 resolutions (or close) that also have valid preview sizes
+                        if (abs(pictureSize.width.toDouble() / pictureSize.height.toDouble() - 16.0 / 9.0) <= 0.2
+                                && previewSizes.contains(pictureSize)) {
+                            Log.d(TAG, "Picture size is ~16:9 $pictureSize")
+                            pictureSizes.add(pictureSize)
+                        }
                     }
 
-                    text_view_res_value.text = "$resolution"
-                } catch (e: CameraAccessException) {
-                    e.printStackTrace()
+                    // Choose the closest picture size
+                    // PictureSizes gets filled largest to smallest, so reverse here for slider
+                    resolution = pictureSizes[round((1.0 - progress / 100.0) * (pictureSizes.size - 1)).toInt()]
+
+                    try {
+                        // camera
+                        if (cameraController is CameraController1) {
+                            cameraController?.stopPreview()
+                            cameraController?.setPictureSize(resolution!!.width, resolution!!.height)
+                            cameraController?.setPreviewSize(resolution!!.width, resolution!!.height)
+                            cameraController?.startPreview()
+                        }
+                        // camera2
+                        else if (cameraController is CameraController2) {
+                            cameraController?.stopPreview()
+
+                            if ((cameraController as CameraController2).captureSession == null) {
+                                cameraController?.setPictureSize(resolution!!.width, resolution!!.height)
+                                cameraController?.setPreviewSize(resolution!!.width, resolution!!.height)
+                                cameraController?.startPreview()
+                            }
+                        }
+
+                        text_view_res_value.text = "$resolution"
+                    } catch (e: CameraAccessException) {
+                        e.printStackTrace()
+                    }
                 }
             }
         }
@@ -748,8 +859,18 @@ class MainActivity : AppCompatActivity() {
             // camera
             if (cameraController is CameraController1) {
                 Log.d(TAG, "Using camera")
+
+                // Auto exposure (just set exposure compensation to 0 EV)
+                if (autoModes!![SEEK_BAR_EXPOSURE] == true) {
+                    cameraController?.exposureCompensation = 0
+                }
+
+                // Manual exposure
+                else {
+                    cameraController?.exposureCompensation = exposureCompensation.toInt()
+                }
+
                 cameraController?.setISO(gainString)
-                cameraController?.exposureCompensation = exposureCompensation.toInt()
             }
             // camera2
             else if (cameraController is CameraController2) {
@@ -757,14 +878,30 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Min exposure time: ${cameraController?.cameraFeatures?.min_exposure_time}")
                 Log.d(TAG, "Max exposure time: ${cameraController?.cameraFeatures?.max_exposure_time}")
                 Log.d(TAG, "Current exposure time: ${cameraController?.exposureTime}")
-                /**
-                 * CameraController will not allow auto exposure to turn off unless we also set a
-                 * manual ISO first
-                 */
-                cameraController?.setManualISO(true, gain)
-                cameraController?.exposureTime = exposure
-                cameraController?.focusDistance = focus
-                cameraController?.focusValue = "focus_mode_manual2"
+
+                // Auto exposure
+                if (autoModes!![SEEK_BAR_EXPOSURE] == true) {
+                    // Use this to turn on auto exposure and auto ISO
+                    cameraController?.setManualISO(false, 0)
+                    // Also toggle the gain switch since these are coupled
+                    autoSwitches[SEEK_BAR_GAIN]!!.isChecked = true
+                }
+
+                // Manual exposure
+                else {
+                    /**
+                     * CameraController will not allow auto exposure to turn off unless we also set a
+                     * manual ISO first
+                     */
+                    cameraController?.setManualISO(true, gain)
+                    cameraController?.exposureTime = exposure
+                    cameraController?.focusDistance = focus
+                    cameraController?.focusValue = "focus_mode_manual2"
+                    // Also toggle the gain switch since these are coupled
+                    autoSwitches[SEEK_BAR_GAIN]!!.isChecked = false
+                }
+
+
             }
 
             // Calculate FOV

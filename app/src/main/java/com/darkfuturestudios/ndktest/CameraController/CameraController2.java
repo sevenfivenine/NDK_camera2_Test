@@ -162,7 +162,7 @@ public class CameraController2 extends CameraController {
 	private ContinuousFocusMoveCallback continuous_focus_move_callback;
 	
 	private final MediaActionSound media_action_sound = new MediaActionSound();
-	private boolean sounds_enabled = true;
+	private boolean sounds_enabled = false;
 
 	private boolean has_received_frame;
 	private boolean capture_result_is_ae_scanning;
