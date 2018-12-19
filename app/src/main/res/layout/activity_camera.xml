@@ -47,7 +47,7 @@
         app:layout_constraintHorizontal_bias="0.67"
         app:layout_constraintStart_toStartOf="parent" / -->
 
-    <!-- Sliders -->
+    <!-- SeekBars -->
 
     <SeekBar
         android:id="@+id/seek_bar_exposure"
@@ -61,7 +61,7 @@
         android:progress="50"
         app:layout_constraintEnd_toStartOf="@+id/text_view_exposure_value"
         app:layout_constraintStart_toEndOf="@+id/text_view_exposure"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toBottomOf="@+id/switch_auto_exposure" />
 
     <SeekBar
         android:id="@+id/seek_bar_focus"
@@ -74,7 +74,7 @@
         android:progress="50"
         app:layout_constraintEnd_toStartOf="@+id/text_view_focus_value"
         app:layout_constraintStart_toEndOf="@+id/text_view_focus"
-        app:layout_constraintTop_toBottomOf="@+id/seek_bar_exposure" />
+        app:layout_constraintTop_toBottomOf="@+id/switch_auto_focus" />
 
     <SeekBar
         android:id="@+id/seek_bar_gain"
@@ -87,7 +87,7 @@
         android:progress="50"
         app:layout_constraintEnd_toStartOf="@+id/text_view_gain_value"
         app:layout_constraintStart_toEndOf="@+id/text_view_gain"
-        app:layout_constraintTop_toBottomOf="@+id/seek_bar_focus" />
+        app:layout_constraintTop_toBottomOf="@+id/switch_auto_gain" />
 
     <SeekBar
         android:id="@+id/seek_bar_res"
@@ -100,7 +100,7 @@
         android:progress="50"
         app:layout_constraintEnd_toStartOf="@+id/text_view_res_value"
         app:layout_constraintStart_toEndOf="@+id/text_view_res"
-        app:layout_constraintTop_toBottomOf="@+id/seek_bar_gain" />
+        app:layout_constraintTop_toBottomOf="@+id/switch_auto_resolution" />
 
     <!-- Slider labels -->
 
@@ -216,5 +216,48 @@
         android:text="Show Stacked Exposure"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/text_view_FOV" />
+
+    <!-- Auto switches -->
+
+    <Switch
+        android:id="@+id/switch_auto_exposure"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:text="Auto Exposure"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <Switch
+        android:id="@+id/switch_auto_focus"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:text="Auto Focus"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/text_view_exposure" />
+
+    <Switch
+        android:id="@+id/switch_auto_gain"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:text="Auto Gain"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/text_view_focus" />
+
+    <Switch
+        android:id="@+id/switch_auto_resolution"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:text="Auto Resolution"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/text_view_gain" />
 
 </android.support.constraint.ConstraintLayout>
