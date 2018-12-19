@@ -1985,7 +1985,7 @@ void A3ImagePrint ( A3Image *pImage, FILE *pFile )
 		fprintf ( pFile, "ISO:       %d\n", pImage->iso );
 	
 	if ( ! isinf ( pImage->exposure ) && pImage->exposure > 0.0 )
-		fprintf ( pFile, "Exposure:  %.1f\n", pImage->exposure );
+		fprintf ( pFile, "Exposure:  %.3f\n", pImage->exposure );
 	
 	if ( ! isinf ( pImage->jd ) )
 	{

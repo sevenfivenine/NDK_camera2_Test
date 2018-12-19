@@ -110,6 +110,9 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processStackedImage(
         jint height,
         jfloat widthAngle,
         jfloat heightAngle,
+        jfloat exposureSecs,
+        jint iso,
+        jstring imagePath,
         jstring logDir)
 {
     const char *logDirString = env->GetStringUTFChars ( logDir, 0 );
@@ -125,6 +128,15 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processStackedImage(
 
     env->ReleaseStringUTFChars ( logDir, logDirString );
 
+    // Print image file path to log file, if we have one.
+
+    if ( logFile )
+    {
+        const char *imagePathString = env->GetStringUTFChars ( imagePath, 0 );
+        fprintf ( logFile, "Saved image %s\n", imagePathString );
+        env->ReleaseStringUTFChars ( imagePath, imagePathString );
+    }
+
     // Get length of, and pointer to, 32-bit ARGB image pixel data from the camera
 
     jsize len = env->GetArrayLength ( pixelArray );
@@ -139,6 +151,8 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processStackedImage(
     double fov = DEG_TO_RAD ( MAX ( widthAngle, heightAngle ) );
 
     A3ImageInit ( &skyImage, lon, lat, jd, HUGE_VAL, HUGE_VAL, fov, width, height, A3IMAGE_RGBA8, pixels );
+    skyImage.exposure = exposureSecs;
+    skyImage.iso = iso;
     skyImage.pLogFile = logFile;
 
     A3ImagePrint ( &skyImage, logFile );
@@ -155,7 +169,7 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processStackedImage(
         if ( logFile )
         {
             fprintf(logFile,
-                    "Image too bright (median=%.0f) or has insufficient contrast (%.0f); exiting.\n",
+                    "Image too bright (median=%.0f) or has insufficient contrast (%.0f); exiting.\n\n",
                     stats.fMedian, stats.fMax - stats.fMin);
             fclose(logFile);
             return(-1);
@@ -201,7 +215,9 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processStackedImage(
     int nRefs = AddReferenceSolarSystemObjects ( &skyImage );
     qsort ( skyImage.pReferences, skyImage.nReferences, sizeof ( A3Reference ), CompareSkyReferenceMagnitudes );
     if ( logFile )
-        fprintf ( logFile, "Total %d references.\n", skyImage.nReferences );
+    {
+        fprintf(logFile, "Total %d references.\n", skyImage.nReferences);
+    }
 
     // Now attempt to identify objects in the image.  If we only attempt to identify the 6 brightest
     // objects, we'll get an answer much faster, and this usually works.  But we may fail to correctly
@@ -218,19 +234,22 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processStackedImage(
     int success = A3ImageIdentifyObjects ( &skyImage, &params );
     if ( success )
     {
-        if (logFile)
-            fprintf(logFile, "Failed to identify enough objects to determine field of view.\n");
+        if ( logFile )
+            fprintf ( logFile, "%d objects matched, mean error is %.2f°.\n",
+                      params.nObjsMatched,
+                      RAD_TO_DEG ( params.meanError ) );
     }
     else
     {
-        if ( logFile )
-            fprintf ( logFile, "%d objects matched, mean error is %.2f°.\n",
-                  params.nObjsMatched,
-                  RAD_TO_DEG ( params.meanError ) );
+        if (logFile)
+            fprintf(logFile, "Failed to identify enough objects to determine field of view.\n");
     }
 
     if ( logFile )
-        A3ImagePrintIdentifiedObjects ( &skyImage, FALSE, logFile );
+    {
+        A3ImagePrintIdentifiedObjects(&skyImage, FALSE, logFile);
+        fprintf(logFile, "\n" );
+    }
 
     // Release memory for sky image data
 
@@ -292,16 +311,18 @@ int AddReferenceSolarSystemObjects ( A3Image *pImage )
     mag[5] = AAJupiterMagnitude ( rad[5], dst[5], pha[5] );
     mag[6] = AASaturnMagnitude ( rad[6], dst[6], pha[6], AASaturnRingPlaneInclination ( relXYZ[6], dst[6] ) );
 
-    A3Reference reference = { 0 };
-
-    reference.ra = ra[i];
-    reference.dec = dec[i];
-    reference.mag = mag[i];
-    reference.data = NULL;
-    strncpy ( reference.name, names[i], sizeof ( reference.name ) );
-
     for ( i = 0; i < 7; i++ )
-        A3ImageAddReference ( pImage, &reference, MIN_REF_ALT );
+    {
+        A3Reference reference = { 0 };
+
+        reference.ra = ra[i];
+        reference.dec = dec[i];
+        reference.mag = mag[i];
+        reference.data = NULL;
+        strncpy ( reference.name, names[i], sizeof ( reference.name ) );
+
+        A3ImageAddReference(pImage, &reference, MIN_REF_ALT);
+    }
 
     return ( pImage->nReferences );
 }

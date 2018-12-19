@@ -839,8 +839,10 @@ class MainActivity : AppCompatActivity() {
             val height = previewBitmap.height
             val config = previewBitmap.config
 
+            var imageFile: File = createImageFile()
+            val imagePath: String = imageFile.absolutePath
             val galleryPath: String = galleryFolder.absolutePath
-            processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, galleryPath )
+            processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
 
             // Display stacked image
 
@@ -851,7 +853,7 @@ class MainActivity : AppCompatActivity() {
 
             var outputPhoto: FileOutputStream? = null
             try {
-                outputPhoto = FileOutputStream(createImageFile())
+                outputPhoto = FileOutputStream(imageFile)
                 /** OpenCamera uses a much more sophisticated method of saving images
                  *  This is much simpler, but less versatile
                  *  We don't even use the data argument, just capture from textureView instead
@@ -903,7 +905,7 @@ class MainActivity : AppCompatActivity() {
      */
     private external fun computeOrbitParams(a: Float, e: Float): String
 
-    private external fun processStackedImage (data:IntArray, width:Int, height:Int, widthAngle:Float, heightAngle:Float, logDir:String ): Int
+    private external fun processStackedImage (data:IntArray, width:Int, height:Int, widthAngle:Float, heightAngle:Float, exposureSeconds:Float, iso:Int, imageFilePath:String, logDir:String ): Int
 
     private external fun stackImageBuffers (data:IntArray, width:Int, height:Int, stackedData:IntArray ): Int
 
