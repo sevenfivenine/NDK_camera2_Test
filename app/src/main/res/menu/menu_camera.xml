@@ -4,7 +4,7 @@
 
     <item
         android:id="@+id/action_settings_visibility"
-        android:icon="@drawable/ic_visibility"
+        android:icon="@drawable/ic_visibility_light"
         android:title="@string/action_settings_visibility"
         app:showAsAction="ifRoom"
         />

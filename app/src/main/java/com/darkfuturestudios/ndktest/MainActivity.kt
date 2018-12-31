@@ -318,6 +318,10 @@ class MainActivity : AppCompatActivity() {
                 calculateCameraSetting(seekBar.progress, key)
             }
 
+            // Add indicator to Action Bar that shows which camera API is used for the device
+            toolbar_camera.title = if (cameraController is CameraController1) "camera (old) API"
+            else if (cameraController is CameraController2) "camera2 API" else "Error: no camera?"
+
             // Oscillate camera
             if (EASTER_EGG == 1 && cameraController is CameraController2) {
                 Log.d(TAG, "Oscillate!")
@@ -662,7 +666,7 @@ class MainActivity : AppCompatActivity() {
                          */
                         if (progress < minStackingProgress) {
                             stackMode = false
-                            (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_camera)
+                            (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_camera_light)
                             // Not stacking
                             stackDuration = 0L
                             // Progress through the exposure time portion of the seek bar
@@ -679,7 +683,7 @@ class MainActivity : AppCompatActivity() {
                          */
                         else {
                             stackMode = true
-                            (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_stack)
+                            (fabTakePhoto as FloatingActionButton).setImageResource(R.drawable.ic_stack_light)
                             // Set the exposure time (for each capture)
                             exposure = stackingExposureTime
                             // Progress through the stacking portion of the seek bar
@@ -731,7 +735,7 @@ class MainActivity : AppCompatActivity() {
                         // progress = 0   -> focus = minFocusDist
                         // progress = 100 -> focus = 0.0f
                         focus =  minFocusDist - ((progress / 100.0f) * minFocusDist)
-                        text_view_focus_value.text = "$focus"
+                        text_view_focus_value.text = "%.2f m".format(1.0/focus)
                     }
                 }
             }
