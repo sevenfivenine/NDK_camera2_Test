@@ -1068,6 +1068,7 @@ class MainActivity : AppCompatActivity() {
 
             val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
             image_view_stack.setImageBitmap(stackedBitmap)
+            switch_hide_preview.isChecked = true
 
             // Save stacked image
 
