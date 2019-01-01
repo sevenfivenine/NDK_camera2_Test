@@ -99,9 +99,8 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Amount of time the shutter stays open for each stack capture (Nanoseconds)
-     * TODO Change from 1/12 of a second?
      */
-    private var stackingExposureTime: Long = (1000000000*(1.0/12)).toLong()
+    private var stackingExposureTime: Long = 0L
 
     /**
      * When stacking is active, the image data is stored here
@@ -191,7 +190,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         fabTakePhoto.setOnClickListener {
-            if (stackMode) stackExposure() else takePhoto(true, false)
+            // First make the button turn red
+            fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
+
+            // Wait one second for the device to stabilize after user touches it
+            val handler = Handler()
+            handler.postDelayed({
+                if (stackMode) stackExposure() else takePhoto(true, false)
+            }, 1000)
+
         }
 
         /*fab_stack.setOnClickListener {
@@ -581,6 +588,10 @@ class MainActivity : AppCompatActivity() {
         val errorCallback = CameraController.ErrorCallback { Log.e(TAG, "Error from takePicture()") }
 
         cameraController?.takePicture(pictureCallback, errorCallback)
+
+        if (!stack)
+        // Change FAB color back to blue
+        fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
     }
 
     /**
@@ -654,10 +665,13 @@ class MainActivity : AppCompatActivity() {
                         // The point where the slider switches from changing exposure time to stacking
                         val minStackingProgress = 50.1
 
-                        // TODO Add a check, in the off-chance that a camera2 device is unable to support a 1/12 second exposure time
-                        val previewMaxExposureTime = (1.0/12) * 1000000000L
+                        // 1/2 a second, or the max exposure time of the device
+                        val previewMaxExposureTime = min((1.0/2) * 1000000000L, maxExposureTime.toDouble())
 
-                        val maxStackTime = 10L * 1000000000L // 10 seconds
+                        // Use 1/2 a second, or the max exposure time of the device
+                        stackingExposureTime = previewMaxExposureTime.toLong()
+
+                        val maxStackTime = 4L * 1000000000L // 4 seconds
 
                         /**
                          * Change exposure time
@@ -691,7 +705,7 @@ class MainActivity : AppCompatActivity() {
                             val stackProgress = (progress - minStackingProgress)/(100.0f - minStackingProgress)
 
                             // Linear
-                            stackDuration = (previewMaxExposureTime + (stackProgress * maxStackTime - previewMaxExposureTime)).toLong()
+                            stackDuration = (previewMaxExposureTime + (stackProgress * (maxStackTime - previewMaxExposureTime))).toLong()
 
                             text_view_exposure_value.text = "%.2f ms".format(stackDuration/1000000.0)
                         }
@@ -1005,7 +1019,6 @@ class MainActivity : AppCompatActivity() {
      * camera's current exposure time)
      */
     private fun stackExposure() {
-        fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
         Log.d(TAG, "stackExposure()")
         //val startTime = System.currentTimeMillis()
 
