@@ -518,6 +518,10 @@ public class CameraController2 extends CameraController {
 		}
 
 		private boolean setAEMode(CaptureRequest.Builder builder, boolean is_still) {
+			// For the purpose of this app, we assume a mounted device on a telescope.
+			// If we do not set this to true, exposure time is capped!
+			is_still = true;
+
 			if( NDKTestUtil.LOG )
 				Log.d(TAG, "setAEMode");
 			if( has_iso ) {

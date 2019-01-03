@@ -1054,6 +1054,7 @@ class MainActivity : AppCompatActivity() {
      * First, we must check if the stacking is finished
      */
     fun runSingleStack() {
+        Log.d(TAG, "Exposure time: ${cameraController?.exposureTime}")
         // Still stacking?
         if (System.currentTimeMillis() - stackingStartTime < stackDuration/1000000.0) {
             Log.d(TAG, "Stacking!")
