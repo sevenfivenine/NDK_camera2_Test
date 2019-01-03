@@ -1070,8 +1070,13 @@ class MainActivity : AppCompatActivity() {
         // Still stacking?
         // if (System.currentTimeMillis() - stackingStartTime < stackDuration/1000000.0) {
         if (exposuresTaken < exposuresNeeded) {
-            Log.d(TAG, "Stacking exposure " + exposuresTaken + " of " + exposuresNeeded )
 
+            // For final frame in stack, set exposure time as needed to complete the whole stack to its intended duration.
+
+            if ( exposuresTaken == exposuresNeeded - 1 )
+                cameraController?.exposureTime = stackDuration - exposuresTaken * stackingExposureTime
+
+            Log.d(TAG, "Stacking exposure " + ( exposuresTaken + 1 ) + " of " + exposuresNeeded + ": " + cameraController?.exposureTime + " nanosec" )
 
             // First capture the light on the preview
             takePhoto(false, true)
@@ -1080,6 +1085,11 @@ class MainActivity : AppCompatActivity() {
 
         // Stacking completed
         else {
+
+            // Set camera exposure time back to its expected value
+
+            cameraController?.exposureTime = exposure
+
             // Process stacked image in native code
 
             val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
