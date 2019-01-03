@@ -98,6 +98,16 @@ class MainActivity : AppCompatActivity() {
     private var stackingStartTime: Long = 0L
 
     /**
+     * Number of individual exposures required to generate total stacked exposure
+     */
+    private var exposuresNeeded: Int = 0
+
+    /**
+     * Number of individual exposures actually taken so far in the current stacking sequence
+     */
+    private var exposuresTaken: Int = 0
+
+    /**
      * Amount of time the shutter stays open for each stack capture (Nanoseconds)
      */
     private var stackingExposureTime: Long = 0L
@@ -1039,6 +1049,8 @@ class MainActivity : AppCompatActivity() {
         //var bitmap: Bitmap
 
         stackingStartTime = System.currentTimeMillis()
+        exposuresNeeded = ( ( stackDuration + stackingExposureTime - 1 ) / stackingExposureTime ).toInt()  // round up
+        exposuresTaken = 0
 
         runSingleStack()
 
@@ -1055,12 +1067,14 @@ class MainActivity : AppCompatActivity() {
      */
     fun runSingleStack() {
         // Still stacking?
-        if (System.currentTimeMillis() - stackingStartTime < stackDuration/1000000.0) {
-            Log.d(TAG, "Stacking!")
+        // if (System.currentTimeMillis() - stackingStartTime < stackDuration/1000000.0) {
+        if (exposuresTaken < exposuresNeeded) {
+            Log.d(TAG, "Stacking exposure " + exposuresTaken + " of " + exposuresNeeded )
 
 
             // First capture the light on the preview
             takePhoto(false, true)
+            exposuresTaken++
         }
 
         // Stacking completed
