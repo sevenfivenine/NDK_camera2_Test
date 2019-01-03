@@ -234,10 +234,15 @@ Java_com_darkfuturestudios_ndktest_MainActivity_processStackedImage(
     int success = A3ImageIdentifyObjects ( &skyImage, &params );
     if ( success )
     {
+        // after successful plate-solve, print out solved image center, scale, etc.
+
         if ( logFile )
-            fprintf ( logFile, "%d objects matched, mean error is %.2f°.\n",
-                      params.nObjsMatched,
-                      RAD_TO_DEG ( params.meanError ) );
+        {
+            fprintf(logFile, "%d objects matched, mean error is %.2f°.\n",
+                    params.nObjsMatched,
+                    RAD_TO_DEG (params.meanError));
+            A3ImagePrint(&skyImage, logFile);
+        }
     }
     else
     {
