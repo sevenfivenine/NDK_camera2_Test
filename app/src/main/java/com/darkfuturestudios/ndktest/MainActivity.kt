@@ -98,6 +98,16 @@ class MainActivity : AppCompatActivity() {
     private var stackingStartTime: Long = 0L
 
     /**
+     * Number of individual exposures required to generate total stacked exposure
+     */
+    private var exposuresNeeded: Int = 0
+
+    /**
+     * Number of individual exposures actually taken so far in the current stacking sequence
+     */
+    private var exposuresTaken: Int = 0
+
+    /**
      * Amount of time the shutter stays open for each stack capture (Nanoseconds)
      */
     private var stackingExposureTime: Long = 0L
@@ -1084,6 +1094,8 @@ class MainActivity : AppCompatActivity() {
         //var bitmap: Bitmap
 
         stackingStartTime = System.currentTimeMillis()
+        exposuresNeeded = ( ( stackDuration + stackingExposureTime - 1 ) / stackingExposureTime ).toInt()  // round up
+        exposuresTaken = 0
 
         timer = Timer()
         timer?.scheduleAtFixedRate(object : TimerTask() {
@@ -1110,17 +1122,42 @@ class MainActivity : AppCompatActivity() {
     fun runSingleStack() {
         Log.d(TAG, "Exposure time: ${cameraController?.exposureTime}")
         // Still stacking?
-        if (System.currentTimeMillis() - stackingStartTime < stackDuration/1000000.0) {
-            Log.d(TAG, "Stacking!")
+        // if (System.currentTimeMillis() - stackingStartTime < stackDuration/1000000.0) {
+        if (exposuresTaken < exposuresNeeded) {
 
+            // For final frame in stack, set exposure time as needed to complete the whole stack to its intended duration.
+
+            if ( exposuresTaken == exposuresNeeded - 1 )
+                cameraController?.exposureTime = stackDuration - exposuresTaken * stackingExposureTime
+
+            Log.d(TAG, "Stacking exposure " + ( exposuresTaken + 1 ) + " of " + exposuresNeeded + ": " + cameraController?.exposureTime + " nanosec" )
 
             // First capture the light on the preview
             takePhoto(false, true)
+            exposuresTaken++
         }
 
         // Stacking completed
         // BUT the stacked image is probably not donee being captured!
         else {
+
+            // Set camera exposure time back to its expected value
+
+            cameraController?.exposureTime = exposure
+
+            // Process stacked image in native code
+
+            val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
+            val width = previewBitmap.width
+            val height = previewBitmap.height
+            val config = previewBitmap.config
+
+            var imageFile: File = createImageFile()
+            val imagePath: String = imageFile.absolutePath
+            val galleryPath: String = galleryFolder.absolutePath
+            processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
+
+            // Display stacked image
 
 
             // Stop the timer to stop stacking
