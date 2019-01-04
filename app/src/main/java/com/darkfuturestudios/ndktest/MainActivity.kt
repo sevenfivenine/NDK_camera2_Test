@@ -113,6 +113,11 @@ class MainActivity : AppCompatActivity() {
      */
     private var stackMode: Boolean = false
 
+    /**
+     * Schedules stack frames
+     */
+    private var timer: Timer? = null
+
     //endregion
 
     //region lifecycle
@@ -506,9 +511,9 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "PictureCallback.onCompleted()")
 
                 // For stacking. When finished taking photo, do next capture
-                if (stack) {
+                /*if (stack) {
                     runSingleStack()
-                }
+                }*/
 /*
                 /** For camera2, we need to pause the preview to indicate to the user a photo has
                  *  been captured. For camera, pause is done automatically */
@@ -574,6 +579,12 @@ class MainActivity : AppCompatActivity() {
                     Log.d(TAG, "$bitmap")
 
                     stackImageBuffers( bitmapPixels, width, height, stackedImage )
+
+                    val stackingFinished = false
+
+                    // After the LAST stack
+                    // TODO need to merge first to complete this
+                    if (stackingFinished) processStackedImage(width, height, config)
                 }
             }
 
@@ -592,6 +603,40 @@ class MainActivity : AppCompatActivity() {
         if (!stack)
         // Change FAB color back to blue
         fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
+    }
+
+    private fun processStackedImage(width: Int, height: Int, config: Bitmap.Config) {
+        // Process stacked image in native code
+        var imageFile: File = createImageFile()
+        val imagePath: String = imageFile.absolutePath
+        val galleryPath: String = galleryFolder.absolutePath
+        processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
+
+        // Display stacked image
+
+        val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
+        image_view_stack.setImageBitmap(stackedBitmap)
+        switch_hide_preview.isChecked = true
+
+        // Save stacked image
+
+        var outputPhoto: FileOutputStream? = null
+        try {
+            outputPhoto = FileOutputStream(imageFile)
+            /** OpenCamera uses a much more sophisticated method of saving images
+             *  This is much simpler, but less versatile
+             *  We don't even use the data argument, just capture from textureView instead
+             */
+            stackedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try {
+                outputPhoto?.close()
+            } catch (e: IOException) {
+                e.printStackTrace()
+            }
+        }
     }
 
     /**
@@ -1040,7 +1085,16 @@ class MainActivity : AppCompatActivity() {
 
         stackingStartTime = System.currentTimeMillis()
 
-        runSingleStack()
+        timer = Timer()
+        timer?.scheduleAtFixedRate(object : TimerTask() {
+            override fun run() {
+                runOnUiThread {
+                    runSingleStack()
+                }
+            }
+        }, 0, stackingExposureTime/1000000)
+
+        //runSingleStack()
 
         //cameraController?.stopPreview()
         //val canvas = textureView.lockCanvas()
@@ -1065,44 +1119,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Stacking completed
+        // BUT the stacked image is probably not donee being captured!
         else {
-            // Process stacked image in native code
 
-            val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
-            val width = previewBitmap.width
-            val height = previewBitmap.height
-            val config = previewBitmap.config
 
-            var imageFile: File = createImageFile()
-            val imagePath: String = imageFile.absolutePath
-            val galleryPath: String = galleryFolder.absolutePath
-            processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
-
-            // Display stacked image
-
-            val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
-            image_view_stack.setImageBitmap(stackedBitmap)
-            switch_hide_preview.isChecked = true
-
-            // Save stacked image
-
-            var outputPhoto: FileOutputStream? = null
-            try {
-                outputPhoto = FileOutputStream(imageFile)
-                /** OpenCamera uses a much more sophisticated method of saving images
-                 *  This is much simpler, but less versatile
-                 *  We don't even use the data argument, just capture from textureView instead
-                 */
-                stackedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                try {
-                    outputPhoto?.close()
-                } catch (e: IOException) {
-                    e.printStackTrace()
-                }
-            }
+            // Stop the timer to stop stacking
+            timer?.cancel()
 
             // Change FAB color back to blue
             fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
