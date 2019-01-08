@@ -1,12 +1,5 @@
 package com.darkfuturestudios.ndktest.CameraController;
 
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
-
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
@@ -47,11 +40,14 @@ import android.view.Display;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 
-import com.darkfuturestudios.ndktest.CameraController.CameraController;
-import com.darkfuturestudios.ndktest.CameraController.CameraControllerException;
-import com.darkfuturestudios.ndktest.CameraController.CameraControllerManager2;
-import com.darkfuturestudios.ndktest.CameraController.RawImage;
 import com.darkfuturestudios.ndktest.NDKTestUtil;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
 
 /** Provides support using Android 5's Camera 2 API
  *  android.hardware.camera2.*.

@@ -1,13 +1,21 @@
+@file:Suppress("DEPRECATION")
+
 package com.darkfuturestudios.ndktest
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.hardware.Camera
-import android.hardware.camera2.*
-import android.os.*
+import android.hardware.camera2.CameraAccessException
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.os.Build
+import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
 import android.support.design.widget.FloatingActionButton
 import android.support.v4.app.ActivityCompat
 import android.support.v7.app.AppCompatActivity
@@ -28,9 +36,9 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.collections.HashMap
 import kotlin.math.*
 
+@Suppress("DEPRECATION")
 class MainActivity : AppCompatActivity() {
 
     //region companion
@@ -77,11 +85,11 @@ class MainActivity : AppCompatActivity() {
     private var settingsVisible: Boolean = true // Toggles the UI (sliders, switches, labels)
     private var exposure: Long = 1000000L // camera2; Exposure time (Nanoseconds)
     private var exposureCompensation: Double = 0.0 // camera
-    private var focus: Float = 0.0f
+    private var focus: Float = 0.0f // Units: 1/meter (So 1/focus = focal distance in meters)
     private var gain: Int = 0 // camera2
     private var gainString: String = "" // camera
     private var resolution: CameraController.Size? = null
-    private var autoModes: HashMap<Int, Boolean>? = null
+    private var autoModes: HashMap<Int, Boolean>? = null // HashMap of Booleans describing which settings are in auto mode
     private var fovX: Float? = 0.0f  // camera angular fieid of view width, in degrees
     private var fovY: Float? = 0.0f  // camera angular field of view height, in degrees
 
@@ -126,14 +134,11 @@ class MainActivity : AppCompatActivity() {
     /**
      * Schedules stack frames
      */
-    @Deprecated(message = "Use handler") private var timer: Timer? = null
-
-    /**
-     * Use this for scheduling instead
-     */
     private var handler: Handler? = null
 
     /**
+     * Time of the last stack frame
+     * Used to verify stack timing is accurate
      * Units: milliseconds
      */
     private var lastStackFrameTimestamp: Long = 0L
@@ -186,7 +191,7 @@ class MainActivity : AppCompatActivity() {
 
         for ((key, autoSwitch) in autoSwitches) {
             // Set listener
-            autoSwitch.setOnCheckedChangeListener { compoundButton, isChecked ->
+            autoSwitch.setOnCheckedChangeListener { _, isChecked ->
                 Log.d(TAG, "Switch $key is now $isChecked")
                 if (isChecked) {
                     autoModes!![key] = true
@@ -224,21 +229,14 @@ class MainActivity : AppCompatActivity() {
             } else {
                 fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
 
+                // Wait one second for the device to stabilize after user touches it
                 handler?.postDelayed({
                     takePhoto(true, false)
                 }, 1000)
             }
-
-            // Wait one second for the device to stabilize after user touches it
-
-
         }
 
-        /*fab_stack.setOnClickListener {
-            stackExposure()
-        }*/
-
-        switch_hide_preview.setOnCheckedChangeListener { compoundButton, isChecked ->
+        switch_hide_preview.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 textureView.visibility = View.INVISIBLE
                 image_view_stack.visibility = View.VISIBLE
@@ -305,48 +303,32 @@ class MainActivity : AppCompatActivity() {
 
     //endregion
 
-    //region camera
+    //region camera_init
 
     /**
-     * Toggles the UI (sliders, switches, labels for changing camera settings)
-     */
-    private fun toggleUI(visibility: Int) {
-        for ((key, seekBar) in seekBars) {
-            seekBar.visibility = visibility
-        }
-
-        for ((key, autoSwitch) in autoSwitches) {
-            autoSwitch.visibility = visibility
-        }
-
-        text_view_exposure.visibility = visibility
-        text_view_exposure_value.visibility = visibility
-        text_view_focus.visibility = visibility
-        text_view_focus_value.visibility = visibility
-        text_view_gain.visibility = visibility
-        text_view_gain_value.visibility = visibility
-        text_view_res.visibility = visibility
-        text_view_res_value.visibility = visibility
-        text_view_FOV.visibility = visibility
-        switch_hide_preview.visibility = visibility
-    }
-
-    /**
-     * Sets up camera, creates CameraController, starts preview, then calculates initial camera
-     * settings
+     * Does the following:
+     *
+     * Initialize the SurfaceTexture
+     * Call determineCamera()
+     * Call createImageGallery()
+     * Create a CameraController, and attach it to the SurfaceTexture
+     * Sets correct orientation, and gives an initial preview/picture size
+     * Starts the preview
+     * Call calculateCameraSetting()
+     * Edit ActionBar title to reflect which Camera API is being used
      */
     private fun initializeCamera() {
         val surfaceTexture = textureView.surfaceTexture
 
         // User has already given access (if not, permissions dialog callback routes back here)
         if (checkPermissions()) {
-            setUpCamera()
+            determineCamera()
             createImageGallery()
             cameraController = createCameraController()
             cameraController?.setPreviewTexture(surfaceTexture)
             NDKTestUtil.setCameraDisplayOrientation(this, cameraController, hardwareSupportsCamera2)
 
-            // These will be overwritten once calculateCameraSetting() is called below
+            // These will be overwritten once calculateCameraSetting() is called later
             // TODO these values may cause crashes on some devices
             cameraController?.setPreviewSize(1920, 1080)
             cameraController?.setPictureSize(1080, 1920)
@@ -359,8 +341,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Add indicator to Action Bar that shows which camera API is used for the device
-            toolbar_camera.title = if (cameraController is CameraController1) "camera (old) API"
-            else if (cameraController is CameraController2) "camera2 API" else "Error: no camera?"
+            toolbar_camera.title = when (cameraController) {
+                is CameraController1 -> "camera (old) API"
+                is CameraController2 -> "camera2 API"
+                else -> "Error: no camera?"
+            }
 
             // Oscillate camera
             if (EASTER_EGG == 1 && cameraController is CameraController2) {
@@ -388,10 +373,54 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Finds the correct cameraId to use (back-facing, not wide angle) and determines if the
+     * Checks for permissions (camera, write external storage)
+     * @return True if permissions have already been granted, false if not (will prompt user)
+     */
+    private fun checkPermissions(): Boolean {
+        try {
+            Log.d(TAG, "Checking Permissions for Camera use...")
+            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+                    == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                            this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED) {
+                return true
+            } else {
+                Log.d(TAG, "Permissions Denied!")
+                ActivityCompat.requestPermissions(this@MainActivity,
+                        arrayOf(android.Manifest.permission.CAMERA,
+                                android.Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                        PERMISSION_REQUEST_CAMERA)
+            }
+        } catch (e: CameraAccessException) {
+            e.printStackTrace()
+        }
+
+        return false
+    }
+
+    /**
+     * Once the permission dialog is closed
+     * If all permissions are granted, we may use the app
+     */
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        when (requestCode) {
+            PERMISSION_REQUEST_CAMERA -> {
+                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                    // Permission Granted
+                    initializeCamera()
+                } else {
+                    // Permission Denied. Restart the app to ask again
+                }
+                return
+            }
+        }
+    }
+
+    /**
+     * Determines the correct cameraId to use (back-facing, not wide angle) and determines if the
      * software and hardware is capable of supporting camera2
      */
-    private fun setUpCamera() {
+    private fun determineCamera() {
         try {
             /** In case there is more than one back-facing camera, the one with larger focal lengths
              * is the standard camera, while the other is the wide angle lens. Therefore we need to
@@ -480,47 +509,17 @@ class MainActivity : AppCompatActivity() {
         return cameraControllerLocal
     }
 
-    /**
-     * Closes the CameraController camera
-     */
-    private fun closeCamera() {
-        val cameraControllerLocal = cameraController
-        if (cameraController != null) {
-            Log.d(TAG, "Closing camera")
-            cameraController = null
-            cameraControllerLocal?.stopPreview()
-            cameraControllerLocal?.release()
-        }
-    }
+    // endregion
+
+    // region camera
 
     /**
-     * Checks for permissions (camera, write external storage)
-     * @return True if permissions have already been granted, false if not (will prompt user)
-     */
-    private fun checkPermissions(): Boolean {
-        try {
-            Log.d(TAG, "Checking Permissions for Camera use...")
-            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
-                    == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                            this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    == PackageManager.PERMISSION_GRANTED) {
-                return true
-            } else {
-                Log.d(TAG, "Permissions Denied!")
-                ActivityCompat.requestPermissions(this@MainActivity,
-                        arrayOf(android.Manifest.permission.CAMERA,
-                                android.Manifest.permission.WRITE_EXTERNAL_STORAGE),
-                                PERMISSION_REQUEST_CAMERA)
-            }
-        } catch (e: CameraAccessException) {
-            e.printStackTrace()
-        }
-
-        return false
-    }
-
-    /**
-     * Take Photo by calling CameraController.takePicture()
+     * This method is used for:
+     * - Taking photos in picture mode, using the CameraCaptureSession.capture() method
+     * - Taking photos in stack mode, by directly capturing the bitmap data shown on screen
+     *
+     * @param save: Save the photo to storage?
+     * @param stack: If true, stack mode. If false, picture mode
      */
     private fun takePhoto(save: Boolean, stack: Boolean) {
         Log.d(TAG, "Take photo")
@@ -530,7 +529,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Only needed in photo mode. When stacking simply read data directly from TextureView
+        // Picture mode
         if (!stack) {
             val pictureCallback = object : CameraController.PictureCallback {
                 override fun onStarted() {
@@ -539,27 +538,6 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onCompleted() {
                     Log.d(TAG, "PictureCallback.onCompleted()")
-
-                    // For stacking. When finished taking photo, do next capture
-                    /*if (stack) {
-                        runSingleStack()
-                    }*/
-/*
-                /** For camera2, we need to pause the preview to indicate to the user a photo has
-                 *  been captured. For camera, pause is done automatically */
-
-                // Pause preview
-                if (cameraController is CameraController2) {
-                    cameraController?.stopPreview()
-                }
-
-                // Start preview
-                try {
-                    cameraController?.startPreview()
-                } catch (e: CameraControllerException) {
-                    e.printStackTrace()
-                }
-*/
                 }
 
                 /**
@@ -576,7 +554,6 @@ class MainActivity : AppCompatActivity() {
                              *  This is much simpler, but less versatile
                              *  We don't even use the data argument, just capture from textureView instead
                              */
-                            //textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
                             textureView.getBitmap(resolution!!.height, resolution!!.width).compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
                         } catch (e: Exception) {
                             e.printStackTrace()
@@ -601,9 +578,14 @@ class MainActivity : AppCompatActivity() {
             val errorCallback = CameraController.ErrorCallback { Log.e(TAG, "Error from takePicture()") }
 
             cameraController?.takePicture(pictureCallback, errorCallback)
+
+            // Change FAB color back to blue
+            fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
         }
-        // Get data from TextureView
+
+        // Stack mode
         else {
+            // Save photo if needed
             if (save) {
                 var outputPhoto: FileOutputStream? = null
                 try {
@@ -612,7 +594,6 @@ class MainActivity : AppCompatActivity() {
                      *  This is much simpler, but less versatile
                      *  We don't even use the data argument, just capture from textureView instead
                      */
-                    //textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
                     textureView.getBitmap(resolution!!.height, resolution!!.width).compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -626,96 +607,51 @@ class MainActivity : AppCompatActivity() {
             }
 
             /**
-             * For stacking: Data has been captured. Now send it to C
+             * For stacking: Data has been captured. Now send it to NDK
              */
-            if (stack) {
-                Log.d(TAG, "Processing single stack frame")
-                val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
-                val width = previewBitmap.width
-                val height = previewBitmap.height
-                val config = previewBitmap.config
+            Log.d(TAG, "Processing single stack frame")
+            val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
+            val width = previewBitmap.width
+            val height = previewBitmap.height
+            val config = previewBitmap.config
 
-                // This makes the bitmap immutable, preventing any possible changes
-                // This may not be necessary, but I'll leave it for now just in case
-                val bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
+            // This makes the bitmap immutable, preventing any possible changes
+            // This may not be necessary, but I'll leave it for now just in case
+            val bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
 
-                val bitmapPixels = IntArray(width * height)
+            val bitmapPixels = IntArray(width * height)
 
-                // Loads pixels into stackedBitmap
-                bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                Log.d(TAG, "$bitmap")
+            // Loads pixels into stackedBitmap
+            bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            Log.d(TAG, "$bitmap")
 
-                stackImageBuffers( bitmapPixels, width, height, stackedImage )
+            stackImageBuffers( bitmapPixels, width, height, stackedImage )
 
-                // Check if stacking is completed
-                if (exposuresTaken >= exposuresNeeded) {
-                    Log.d(TAG,"Stacking complete")
-                    processStackedImage(width, height, config)
-                }
-            }
-        }
-
-        if (!stack)
-        // Change FAB color back to blue
-        fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
-    }
-
-    private fun processStackedImage(width: Int, height: Int, config: Bitmap.Config) {
-        Log.d(TAG, "processStackImage()")
-        // Process stacked image in native code
-        var imageFile: File = createImageFile()
-        val imagePath: String = imageFile.absolutePath
-        val galleryPath: String = galleryFolder.absolutePath
-        processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
-
-        // Display stacked image
-
-        val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
-        image_view_stack.setImageBitmap(stackedBitmap)
-        switch_hide_preview.isChecked = true
-
-        // Save stacked image
-
-        var outputPhoto: FileOutputStream? = null
-        try {
-            outputPhoto = FileOutputStream(imageFile)
-            /** OpenCamera uses a much more sophisticated method of saving images
-             *  This is much simpler, but less versatile
-             *  We don't even use the data argument, just capture from textureView instead
-             */
-            stackedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        } finally {
-            try {
-                outputPhoto?.close()
-            } catch (e: IOException) {
-                e.printStackTrace()
+            // Check if stacking is completed, process if so
+            if (exposuresTaken >= exposuresNeeded) {
+                Log.d(TAG,"Stacking complete")
+                processStackedImage(width, height, config)
             }
         }
     }
 
     /**
-     * Once the permission dialog is closed
-     * If all permissions are granted, we may use the app
+     * Closes the CameraController camera
      */
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        when (requestCode) {
-            PERMISSION_REQUEST_CAMERA -> {
-                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                    // Permission Granted
-                    initializeCamera()
-                } else {
-                    // Permission Denied. Restart the app to ask again
-                }
-                return
-            }
+    private fun closeCamera() {
+        val cameraControllerLocal = cameraController
+        if (cameraController != null) {
+            Log.d(TAG, "Closing camera")
+            cameraController = null
+            cameraControllerLocal?.stopPreview()
+            cameraControllerLocal?.release()
         }
     }
 
     /**
      * Calculates camera setting and updates the CameraController session
      */
+    @SuppressLint("SetTextI18n")
     private fun calculateCameraSetting(progress: Int, key: Int) {
 
         // Calculate camera setting
@@ -738,31 +674,9 @@ class MainActivity : AppCompatActivity() {
                         exposureCompensation = minExp + progress / 100.0 * (maxExp - minExp)
                         text_view_exposure_value.text = "%.2f".format(exposureCompensation)
                     }
+
                     // camera2
                     else if (cameraController is CameraController2) {
-                        /*
-
-                        Not true! See below!
-
-                        // If max exposure time of the camera is greater than 10 seconds
-                        // We do not ever need to use stacking
-                        if (maxExposureTime >= 10000000000) {
-                            // linear: exposure = (minExposureTime + (progress / 100.0f) * (10000000000 - minExposureTime)).toLong()
-                            // exponential:
-                            exposure = (minExposureTime * exp(0.01*ln(10000000000.0/minExposureTime) * progress)).toLong()
-                        }
-
-                        // If max exposure time of the camera is less than 10 seconds
-                        // Stacking is necessary past max exposure time
-                        else {
-                            exposure = (100000 * exp(0.069 * progress)).toLong()
-                        }*/
-
-                        // We always need stacking because, at least on some devices, showing the
-                        // preview at 10 seconds will cause a camera firmware crash
-                        // Since we want to support a variety of Android devices, it is in our best
-                        // interest to go the safe route and stack
-
                         // The point where the slider switches from changing exposure time to stacking
                         val minStackingProgress = 50.1
 
@@ -1113,79 +1027,88 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    // endregion
+
+    // region UI
+
     /**
-     * Many cameras (mostly camera but likely some camera2 hardware as well) do not have the ability
+     * Toggles the UI (sliders, switches, labels for changing camera settings)
+     */
+    private fun toggleUI(visibility: Int) {
+        for ((_, seekBar) in seekBars) {
+            seekBar.visibility = visibility
+        }
+
+        for ((_, autoSwitch) in autoSwitches) {
+            autoSwitch.visibility = visibility
+        }
+
+        text_view_exposure.visibility = visibility
+        text_view_exposure_value.visibility = visibility
+        text_view_focus.visibility = visibility
+        text_view_focus_value.visibility = visibility
+        text_view_gain.visibility = visibility
+        text_view_gain_value.visibility = visibility
+        text_view_res.visibility = visibility
+        text_view_res_value.visibility = visibility
+        text_view_FOV.visibility = visibility
+        switch_hide_preview.visibility = visibility
+    }
+
+    // endregion
+
+    // region stack
+
+    /**
+     * Begins the stacking process
+     *
+     * Uses a Handler to schedule stack frames
+     *
+     * Many cameras (mostly camera but some camera2 hardware as well) do not have the ability
      * to record 10 second exposures. Instead, we can stack smaller exposures to reach the desired
      * exposure time (this is especially useful in situations where we do not have access to the
      * camera's current exposure time)
      */
     private fun stackExposure() {
         Log.d(TAG, "stackExposure()")
-        //val startTime = System.currentTimeMillis()
 
         val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
         val width = previewBitmap.width
         val height = previewBitmap.height
-        val config = previewBitmap.config
-
-        //Log.d(TAG, "Resolution: width ${resolution?.width} height ${resolution?.height}, bitmap res width $width x height $height")
-        //Log.d(TAG, "FOV width $fovX height $fovY")
-
-        // GC Issues
-        //val bitmapPixels = IntArray(width * height)
 
         // Initialize stacked image member to store data
         stackedImage = IntArray(width * height)
-
-        //var bitmap: Bitmap
 
         stackingStartTime = System.currentTimeMillis()
         exposuresNeeded = ( ( stackDuration + stackingExposureTime - 1 ) / stackingExposureTime ).toInt()  // round up
         exposuresTaken = 0
 
-        // Will cancel when done (see runSingleStack() )
+        // Will cancel when done (see captureStackFrame() )
         // Max of 100 attempts
+        // Wait 1 second to start
         for (i in 0..100) {
             handler?.postDelayed({
                 Log.d(TAG, "Stack frame scheduled")
-                runSingleStack()
-            }, (stackingExposureTime*i)/1000000)
+                captureStackFrame()
+            }, 1000 + (stackingExposureTime*i)/1000000)
         }
-
-
-
-        /*timer = Timer()
-        timer?.scheduleAtFixedRate(object : TimerTask() {
-            override fun run() {
-                Log.d(TAG, "Not on UI thread")
-                runOnUiThread {
-                    Log.d(TAG, "Stack frame scheduled")
-                    runSingleStack()
-                }
-            }
-        }, 0, stackingExposureTime/1000000)*/
-
-        //runSingleStack()
-
-        //cameraController?.stopPreview()
-        //val canvas = textureView.lockCanvas()
-        //canvas.drawARGB(255, 255, 0, 0)
     }
 
     /**
-     * Runs one iteration of stacking
-     * Or, if stacking is finished: Processes, displays, and saves stacked image
-     * This calls takePhoto()
+     * Captures one frame for stacking by calling takePhoto() with stack = true
+     *
      * First, we must check if the stacking is finished
+     * We must also check to make sure stacking is happening at the rate we are expecting
      */
-    fun runSingleStack() {
+    private fun captureStackFrame() {
         Log.d(TAG, "Exposure time: ${cameraController?.exposureTime}")
+
         // Still stacking?
         if (exposuresTaken < exposuresNeeded) {
             val acceptableError = 100 // ms
             val delay = abs((System.currentTimeMillis() - lastStackFrameTimestamp) - stackingExposureTime/1000000)
 
-            // Once stacking delay has "stabilized", we can actually start
+            // Once stacking is at the rate we want, start
             if (delay <= acceptableError) {
                 fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
 
@@ -1203,7 +1126,9 @@ class MainActivity : AppCompatActivity() {
                 takePhoto(false, true)
             }
 
-            // But if the delay is still to big, don't actually stack yet
+            // But if the timing is off, don't actually stack yet
+            // Instead, wait for it to stabilize
+            // Note: This isn't much of an issue anymore
             else {
                 Log.d(TAG, "Too Much Stack delay! $delay")
                 Log.d(TAG, "Current time ${System.currentTimeMillis()}")
@@ -1215,28 +1140,15 @@ class MainActivity : AppCompatActivity() {
                 lastStackFrameTimestamp = System.currentTimeMillis()
             }
 
-
         }
 
         // Stacking completed
-        // BUT the stacked image is probably not done being captured!
+        // Don't process here though, that is done in takePhoto()
         else {
 
             // Set camera exposure time back to its expected value
 
             cameraController?.exposureTime = exposure
-
-            // NOT necessarily ready to process yet!!!
-
-            /*val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
-            val width = previewBitmap.width
-            val height = previewBitmap.height
-            val config = previewBitmap.config
-
-            var imageFile: File = createImageFile()
-            val imagePath: String = imageFile.absolutePath
-            val galleryPath: String = galleryFolder.absolutePath*/
-            //processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
 
             // Stop the timer to stop stacking
             handler?.removeCallbacksAndMessages(null)
@@ -1247,11 +1159,52 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    /**
+     * Displays, saves, and processes (plate solves) stacked images
+     */
+    private fun processStackedImage(width: Int, height: Int, config: Bitmap.Config) {
+        Log.d(TAG, "processStackImage()")
+        // Process stacked image in native code
+        val imageFile: File = createImageFile()
+        val imagePath: String = imageFile.absolutePath
+        val galleryPath: String = galleryFolder.absolutePath
+
+        // Plate solve
+
+        processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
+
+        // Display stacked image
+
+        val stackedBitmap = Bitmap.createBitmap(stackedImage, width, height, config)
+        image_view_stack.setImageBitmap(stackedBitmap)
+        switch_hide_preview.isChecked = true
+
+        // Save stacked image
+
+        var outputPhoto: FileOutputStream? = null
+        try {
+            outputPhoto = FileOutputStream(imageFile)
+            /** OpenCamera uses a much more sophisticated method of saving images
+             *  This is much simpler, but less versatile
+             *  We don't even use the data argument, just capture from textureView instead
+             */
+            stackedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try {
+                outputPhoto?.close()
+            } catch (e: IOException) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     //endregion
 
     //region old
 
-    fun calculate(view: View) {
+    fun calculate(@Suppress("UNUSED_PARAMETER") view: View) {
         val aString = editTextSemiMajor.text.toString()
         val eString = editTextEccentricity.text.toString()
 
@@ -1270,6 +1223,10 @@ class MainActivity : AppCompatActivity() {
         }
 
     }
+
+    //endregion
+
+    //region native
 
     /**
      * A native method that is implemented by the 'native-lib' native library,

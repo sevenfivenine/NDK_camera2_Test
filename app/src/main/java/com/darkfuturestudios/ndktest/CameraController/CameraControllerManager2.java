@@ -8,7 +8,6 @@ import android.hardware.camera2.CameraMetadata;
 import android.os.Build;
 import android.util.Log;
 
-import com.darkfuturestudios.ndktest.CameraController.CameraControllerManager;
 import com.darkfuturestudios.ndktest.NDKTestUtil;
 
 /** Provides support using Android 5's Camera 2 API

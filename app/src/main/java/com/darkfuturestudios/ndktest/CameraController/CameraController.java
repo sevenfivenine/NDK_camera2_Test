@@ -1,11 +1,5 @@
 package com.darkfuturestudios.ndktest.CameraController;
 
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.location.Location;
@@ -14,6 +8,12 @@ import android.util.Log;
 import android.view.SurfaceHolder;
 
 import com.darkfuturestudios.ndktest.NDKTestUtil;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 /** CameraController is an abstract class that wraps up the access/control to
  *  the Android camera, so that the rest of the application doesn't have to

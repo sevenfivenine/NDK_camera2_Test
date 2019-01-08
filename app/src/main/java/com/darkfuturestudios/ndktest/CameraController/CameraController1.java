@@ -1,10 +1,5 @@
 package com.darkfuturestudios.ndktest.CameraController;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.hardware.Camera.AutoFocusMoveCallback;
@@ -15,8 +10,12 @@ import android.os.Handler;
 import android.util.Log;
 import android.view.SurfaceHolder;
 
-import com.darkfuturestudios.ndktest.CameraController.CameraController;
 import com.darkfuturestudios.ndktest.NDKTestUtil;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 
 /** Provides support using Android's original camera API
  *  android.hardware.Camera.
