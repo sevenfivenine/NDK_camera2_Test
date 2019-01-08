@@ -133,6 +133,11 @@ class MainActivity : AppCompatActivity() {
      */
     private var handler: Handler? = null
 
+    /**
+     * Units: milliseconds
+     */
+    private var lastStackFrameTimestamp: Long = 0L
+
     //endregion
 
     //region lifecycle
@@ -213,12 +218,19 @@ class MainActivity : AppCompatActivity() {
 
         fabTakePhoto.setOnClickListener {
             // First make the button turn red
-            fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
+
+            if (stackMode) {
+                stackExposure()
+            } else {
+                fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
+
+                handler?.postDelayed({
+                    takePhoto(true, false)
+                }, 1000)
+            }
 
             // Wait one second for the device to stabilize after user touches it
-            handler?.postDelayed({
-                if (stackMode) stackExposure() else takePhoto(true, false)
-            }, 1000)
+
 
         }
 
@@ -576,34 +588,6 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     }
-
-                    /**
-                     * For stacking: Data has been captured. Now send it to C
-                     */
-                    if (stack) {
-                        Log.d(TAG, "Processing single stack frame")
-                        val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
-                        val width = previewBitmap.width
-                        val height = previewBitmap.height
-                        val config = previewBitmap.config
-
-                        // This makes the bitmap immutable, preventing any possible changes
-                        // This may not be necessary, but I'll leave it for now just in case
-                        val bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
-
-                        val bitmapPixels = IntArray(width * height)
-
-                        // Loads pixels into stackedBitmap
-                        bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                        Log.d(TAG, "$bitmap")
-
-                        stackImageBuffers( bitmapPixels, width, height, stackedImage )
-
-                        // Check if stacking is completed
-                        if (exposuresTaken < exposuresNeeded) {
-                            processStackedImage(width, height, config)
-                        }
-                    }
                 }
 
                 override fun onRawPictureTaken(raw_image: RawImage?) {}
@@ -664,7 +648,8 @@ class MainActivity : AppCompatActivity() {
                 stackImageBuffers( bitmapPixels, width, height, stackedImage )
 
                 // Check if stacking is completed
-                if (exposuresTaken < exposuresNeeded) {
+                if (exposuresTaken >= exposuresNeeded) {
+                    Log.d(TAG,"Stacking complete")
                     processStackedImage(width, height, config)
                 }
             }
@@ -1158,7 +1143,7 @@ class MainActivity : AppCompatActivity() {
         exposuresNeeded = ( ( stackDuration + stackingExposureTime - 1 ) / stackingExposureTime ).toInt()  // round up
         exposuresTaken = 0
 
-        for (i in 0 until exposuresNeeded) {
+        for (i in 0..exposuresNeeded) {
             handler?.postDelayed({
                 Log.d(TAG, "Stack frame scheduled")
                 runSingleStack()
@@ -1194,19 +1179,41 @@ class MainActivity : AppCompatActivity() {
     fun runSingleStack() {
         Log.d(TAG, "Exposure time: ${cameraController?.exposureTime}")
         // Still stacking?
-        // if (System.currentTimeMillis() - stackingStartTime < stackDuration/1000000.0) {
         if (exposuresTaken < exposuresNeeded) {
+            val acceptableError = 100 // ms
+            val delay = abs((System.currentTimeMillis() - lastStackFrameTimestamp) - stackingExposureTime/1000000)
 
-            // For final frame in stack, set exposure time as needed to complete the whole stack to its intended duration.
+            // Once stacking delay has "stabilized", we can actually start
+            if (delay <= acceptableError) {
+                fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
 
-            if ( exposuresTaken == exposuresNeeded - 1 )
-                cameraController?.exposureTime = stackDuration - exposuresTaken * stackingExposureTime
+                // For final frame in stack, set exposure time as needed to complete the whole stack to its intended duration.
+                if ( exposuresTaken == exposuresNeeded - 1 )
+                    cameraController?.exposureTime = stackDuration - exposuresTaken * stackingExposureTime
 
-            Log.d(TAG, "Stacking exposure " + ( exposuresTaken + 1 ) + " of " + exposuresNeeded + ": " + cameraController?.exposureTime + " nanosec" )
+                Log.d(TAG, "Acceptable Stack delay $delay")
+                Log.d(TAG, "Time diff ${System.currentTimeMillis() - lastStackFrameTimestamp}")
+                Log.d(TAG, "Stacking exposure " + ( exposuresTaken + 1 ) + " of " + exposuresNeeded + ": " + cameraController?.exposureTime + " nanosec" )
 
-            // First capture the light on the preview
-            exposuresTaken++
-            takePhoto(false, true)
+                exposuresTaken++
+                lastStackFrameTimestamp = System.currentTimeMillis()
+
+                takePhoto(false, true)
+            }
+
+            // But if the delay is still to big, don't actually stack yet
+            else {
+                Log.d(TAG, "Too Much Stack delay! $delay")
+                Log.d(TAG, "Current time ${System.currentTimeMillis()}")
+                Log.d(TAG, "Last stack frame timestamp $lastStackFrameTimestamp")
+                Log.d(TAG, "Time diff ${System.currentTimeMillis() - lastStackFrameTimestamp}")
+
+                // Set the button to waiting color
+                fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorWaiting))
+                lastStackFrameTimestamp = System.currentTimeMillis()
+            }
+
+
         }
 
         // Stacking completed
