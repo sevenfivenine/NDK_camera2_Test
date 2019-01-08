@@ -5843,7 +5843,7 @@ public class CameraController2 extends CameraController {
 		public void onCaptureStarted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, long timestamp, long frameNumber) {
 			if( request.getTag() == RequestTag.CAPTURE ) {
 				if( NDKTestUtil.LOG ) {
-					Log.d(TAG, "onCaptureStarted: capture");
+					Log.d(TAG, "onCaptureStarted: capture " + timestamp);
 					Log.d(TAG, "frameNumber: " + frameNumber);
 					Log.d(TAG, "exposure time: " + request.get(CaptureRequest.SENSOR_EXPOSURE_TIME));
 				}

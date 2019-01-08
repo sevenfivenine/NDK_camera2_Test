@@ -126,7 +126,12 @@ class MainActivity : AppCompatActivity() {
     /**
      * Schedules stack frames
      */
-    private var timer: Timer? = null
+    @Deprecated(message = "Use handler") private var timer: Timer? = null
+
+    /**
+     * Use this for scheduling instead
+     */
+    private var handler: Handler? = null
 
     //endregion
 
@@ -204,13 +209,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        handler = Handler()
+
         fabTakePhoto.setOnClickListener {
             // First make the button turn red
             fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorStacking))
 
             // Wait one second for the device to stabilize after user touches it
-            val handler = Handler()
-            handler.postDelayed({
+            handler?.postDelayed({
                 if (stackMode) stackExposure() else takePhoto(true, false)
             }, 1000)
 
@@ -512,18 +518,20 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val pictureCallback = object : CameraController.PictureCallback {
-            override fun onStarted() {
-                Log.d(TAG, "PictureCallback.onStarted()")
-            }
+        // Only needed in photo mode. When stacking simply read data directly from TextureView
+        if (!stack) {
+            val pictureCallback = object : CameraController.PictureCallback {
+                override fun onStarted() {
+                    Log.d(TAG, "PictureCallback.onStarted()")
+                }
 
-            override fun onCompleted() {
-                Log.d(TAG, "PictureCallback.onCompleted()")
+                override fun onCompleted() {
+                    Log.d(TAG, "PictureCallback.onCompleted()")
 
-                // For stacking. When finished taking photo, do next capture
-                /*if (stack) {
-                    runSingleStack()
-                }*/
+                    // For stacking. When finished taking photo, do next capture
+                    /*if (stack) {
+                        runSingleStack()
+                    }*/
 /*
                 /** For camera2, we need to pause the preview to indicate to the user a photo has
                  *  been captured. For camera, pause is done automatically */
@@ -540,75 +548,127 @@ class MainActivity : AppCompatActivity() {
                     e.printStackTrace()
                 }
 */
-            }
+                }
 
-            /**
-             * @param data contains EXIF data from the camera, including exposure time
-             */
-            override fun onPictureTaken(data: ByteArray?) {
-                Log.d(TAG, "PictureCallback.onPictureTaken()")
+                /**
+                 * @param data contains EXIF data from the camera, including exposure time
+                 */
+                override fun onPictureTaken(data: ByteArray?) {
+                    Log.d(TAG, "PictureCallback.onPictureTaken()")
 
-                if (save) {
-                    var outputPhoto: FileOutputStream? = null
-                    try {
-                        outputPhoto = FileOutputStream(createImageFile())
-                        /** OpenCamera uses a much more sophisticated method of saving images
-                         *  This is much simpler, but less versatile
-                         *  We don't even use the data argument, just capture from textureView instead
-                         */
-                        //textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
-                        textureView.getBitmap(resolution!!.height, resolution!!.width).compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    } finally {
+                    if (save) {
+                        var outputPhoto: FileOutputStream? = null
                         try {
-                            outputPhoto?.close()
-                        } catch (e: IOException) {
+                            outputPhoto = FileOutputStream(createImageFile())
+                            /** OpenCamera uses a much more sophisticated method of saving images
+                             *  This is much simpler, but less versatile
+                             *  We don't even use the data argument, just capture from textureView instead
+                             */
+                            //textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                            textureView.getBitmap(resolution!!.height, resolution!!.width).compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                        } catch (e: Exception) {
                             e.printStackTrace()
+                        } finally {
+                            try {
+                                outputPhoto?.close()
+                            } catch (e: IOException) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+
+                    /**
+                     * For stacking: Data has been captured. Now send it to C
+                     */
+                    if (stack) {
+                        Log.d(TAG, "Processing single stack frame")
+                        val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
+                        val width = previewBitmap.width
+                        val height = previewBitmap.height
+                        val config = previewBitmap.config
+
+                        // This makes the bitmap immutable, preventing any possible changes
+                        // This may not be necessary, but I'll leave it for now just in case
+                        val bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
+
+                        val bitmapPixels = IntArray(width * height)
+
+                        // Loads pixels into stackedBitmap
+                        bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                        Log.d(TAG, "$bitmap")
+
+                        stackImageBuffers( bitmapPixels, width, height, stackedImage )
+
+                        // Check if stacking is completed
+                        if (exposuresTaken < exposuresNeeded) {
+                            processStackedImage(width, height, config)
                         }
                     }
                 }
 
-                /**
-                 * For stacking: Data has been captured. Now send it to C
-                 */
-                if (stack) {
-                    val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
-                    val width = previewBitmap.width
-                    val height = previewBitmap.height
-                    val config = previewBitmap.config
+                override fun onRawPictureTaken(raw_image: RawImage?) {}
 
-                    // This makes the bitmap immutable, preventing any possible changes
-                    // This may not be necessary, but I'll leave it for now just in case
-                    val bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
+                override fun onBurstPictureTaken(images: MutableList<ByteArray>?) {}
 
-                    val bitmapPixels = IntArray(width * height)
+                override fun onFrontScreenTurnOn() {}
 
-                    // Loads pixels into stackedBitmap
-                    bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                    Log.d(TAG, "$bitmap")
+            }
 
-                    stackImageBuffers( bitmapPixels, width, height, stackedImage )
+            val errorCallback = CameraController.ErrorCallback { Log.e(TAG, "Error from takePicture()") }
 
-                    val stackingFinished = false
-
-                    // After the LAST stack
-                    // TODO need to merge first to complete this
-                    if (stackingFinished) processStackedImage(width, height, config)
+            cameraController?.takePicture(pictureCallback, errorCallback)
+        }
+        // Get data from TextureView
+        else {
+            if (save) {
+                var outputPhoto: FileOutputStream? = null
+                try {
+                    outputPhoto = FileOutputStream(createImageFile())
+                    /** OpenCamera uses a much more sophisticated method of saving images
+                     *  This is much simpler, but less versatile
+                     *  We don't even use the data argument, just capture from textureView instead
+                     */
+                    //textureView.bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                    textureView.getBitmap(resolution!!.height, resolution!!.width).compress(Bitmap.CompressFormat.JPEG, 100, outputPhoto)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    try {
+                        outputPhoto?.close()
+                    } catch (e: IOException) {
+                        e.printStackTrace()
+                    }
                 }
             }
 
-            override fun onRawPictureTaken(raw_image: RawImage?) {}
+            /**
+             * For stacking: Data has been captured. Now send it to C
+             */
+            if (stack) {
+                Log.d(TAG, "Processing single stack frame")
+                val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
+                val width = previewBitmap.width
+                val height = previewBitmap.height
+                val config = previewBitmap.config
 
-            override fun onBurstPictureTaken(images: MutableList<ByteArray>?) {}
+                // This makes the bitmap immutable, preventing any possible changes
+                // This may not be necessary, but I'll leave it for now just in case
+                val bitmap = Bitmap.createBitmap(textureView.getBitmap(resolution!!.height, resolution!!.width))
 
-            override fun onFrontScreenTurnOn() {}
+                val bitmapPixels = IntArray(width * height)
 
+                // Loads pixels into stackedBitmap
+                bitmap.getPixels(bitmapPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                Log.d(TAG, "$bitmap")
+
+                stackImageBuffers( bitmapPixels, width, height, stackedImage )
+
+                // Check if stacking is completed
+                if (exposuresTaken < exposuresNeeded) {
+                    processStackedImage(width, height, config)
+                }
+            }
         }
-
-        val errorCallback = CameraController.ErrorCallback { Log.e(TAG, "Error from takePicture()") }
-
-        cameraController?.takePicture(pictureCallback, errorCallback)
 
         if (!stack)
         // Change FAB color back to blue
@@ -616,6 +676,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processStackedImage(width: Int, height: Int, config: Bitmap.Config) {
+        Log.d(TAG, "processStackImage()")
         // Process stacked image in native code
         var imageFile: File = createImageFile()
         val imagePath: String = imageFile.absolutePath
@@ -1097,14 +1158,25 @@ class MainActivity : AppCompatActivity() {
         exposuresNeeded = ( ( stackDuration + stackingExposureTime - 1 ) / stackingExposureTime ).toInt()  // round up
         exposuresTaken = 0
 
-        timer = Timer()
+        for (i in 0 until exposuresNeeded) {
+            handler?.postDelayed({
+                Log.d(TAG, "Stack frame scheduled")
+                runSingleStack()
+            }, (stackingExposureTime*i)/1000000)
+        }
+
+
+
+        /*timer = Timer()
         timer?.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
+                Log.d(TAG, "Not on UI thread")
                 runOnUiThread {
+                    Log.d(TAG, "Stack frame scheduled")
                     runSingleStack()
                 }
             }
-        }, 0, stackingExposureTime/1000000)
+        }, 0, stackingExposureTime/1000000)*/
 
         //runSingleStack()
 
@@ -1133,35 +1205,32 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Stacking exposure " + ( exposuresTaken + 1 ) + " of " + exposuresNeeded + ": " + cameraController?.exposureTime + " nanosec" )
 
             // First capture the light on the preview
-            takePhoto(false, true)
             exposuresTaken++
+            takePhoto(false, true)
         }
 
         // Stacking completed
-        // BUT the stacked image is probably not donee being captured!
+        // BUT the stacked image is probably not done being captured!
         else {
 
             // Set camera exposure time back to its expected value
 
             cameraController?.exposureTime = exposure
 
-            // Process stacked image in native code
+            // NOT necessarily ready to process yet!!!
 
-            val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
+            /*val previewBitmap = textureView.getBitmap(resolution!!.height, resolution!!.width)
             val width = previewBitmap.width
             val height = previewBitmap.height
             val config = previewBitmap.config
 
             var imageFile: File = createImageFile()
             val imagePath: String = imageFile.absolutePath
-            val galleryPath: String = galleryFolder.absolutePath
-            processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
-
-            // Display stacked image
-
+            val galleryPath: String = galleryFolder.absolutePath*/
+            //processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
 
             // Stop the timer to stop stacking
-            timer?.cancel()
+            //timer?.cancel()
 
             // Change FAB color back to blue
             fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
