@@ -1143,7 +1143,9 @@ class MainActivity : AppCompatActivity() {
         exposuresNeeded = ( ( stackDuration + stackingExposureTime - 1 ) / stackingExposureTime ).toInt()  // round up
         exposuresTaken = 0
 
-        for (i in 0..exposuresNeeded) {
+        // Will cancel when done (see runSingleStack() )
+        // Max of 100 attempts
+        for (i in 0..100) {
             handler?.postDelayed({
                 Log.d(TAG, "Stack frame scheduled")
                 runSingleStack()
@@ -1237,7 +1239,7 @@ class MainActivity : AppCompatActivity() {
             //processStackedImage ( stackedImage, width, height, fovX ?: 0.0f, fovY ?: 0.0f, stackDuration/1.0e9f, gain, imagePath, galleryPath )
 
             // Stop the timer to stop stacking
-            //timer?.cancel()
+            handler?.removeCallbacksAndMessages(null)
 
             // Change FAB color back to blue
             fabTakePhoto.backgroundTintList = ColorStateList.valueOf(resources.getColor(R.color.colorPrimary))
